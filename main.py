@@ -10,12 +10,12 @@ from datetime import datetime
 # Cada grupo pode ter seu próprio webhook Discord e lista de usuários
 MONITOR_GROUPS = [
     {
-        "name": "Grupo 1",
+        "name": "Nouvelle",
         "webhook_url": "https://discord.com/api/webhooks/1413656858383880233/v5vplQKyAeU0Uj7x7vgzmevE46e7uqLMH_2U58rZpy8-musK_ZP01It8LY9A5dfvVaYh",
         "user_ids": [1818113777]  # IDs dos usuários do Roblox para este grupo
     },
     {
-        "name": "Grupo 2",
+        "name": "Comunidade Civil",
         "webhook_url": "https://discord.com/api/webhooks/SEU_WEBHOOK_AQUI",  # Cole aqui a URL do segundo webhook
         "user_ids": [261, 156, 1]  # Adicione aqui os IDs dos usuários do segundo grupo
     }
