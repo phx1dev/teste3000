@@ -148,14 +148,25 @@ def get_users_presence(user_ids):
     """Obtém o status de presença de múltiplos usuários"""
     try:
         url = "https://presence.roblox.com/v1/presence/users"
+        headers = {
+            'Content-Type': 'application/json',
+            'Accept': 'application/json'
+        }
         payload = {"userIds": user_ids}
-        response = requests.post(url, json=payload)
+        response = requests.post(url, json=payload, headers=headers)
+        
         if response.status_code == 200:
             data = response.json().get('userPresences', [])
             print(f"    🔗 API Presença: {len(data)} usuários retornados")
+            # Debug: mostrar resposta da API
+            for presence in data:
+                user_id = presence.get('userId')
+                status = presence.get('userPresenceType', 0)
+                print(f"    🔍 Debug: Usuário {user_id} = Status {status} ({presence_type_to_text(status)})")
             return data
         else:
-            print(f"❌ Erro ao obter presença dos usuários: {response.status_code} - {response.text}")
+            print(f"❌ Erro ao obter presença dos usuários: {response.status_code}")
+            print(f"    Resposta: {response.text}")
             return []
     except Exception as e:
         print(f"❌ Erro ao consultar presença: {e}")
@@ -164,13 +175,23 @@ def get_users_presence(user_ids):
 def get_place_info(place_id):
     """Obtém informações do jogo/place"""
     try:
-        url = f"https://games.roblox.com/v1/games/multiget-place-details"
-        params = {'placeIds': place_id}
-        response = requests.get(url, params=params)
+        url = "https://games.roblox.com/v1/games/multiget-place-details"
+        params = {'placeIds': str(place_id)}
+        headers = {
+            'Accept': 'application/json'
+        }
+        response = requests.get(url, params=params, headers=headers)
+        
         if response.status_code == 200:
             data = response.json()
             if data and len(data) > 0:
+                print(f"    🎮 Jogo encontrado: {data[0].get('name', 'Nome não encontrado')}")
                 return data[0]
+            else:
+                print(f"    ⚠️  Nenhum jogo encontrado para place ID {place_id}")
+        else:
+            print(f"❌ Erro ao obter info do place {place_id}: {response.status_code}")
+            print(f"    Resposta: {response.text}")
         return None
     except Exception as e:
         print(f"❌ Erro ao obter info do place {place_id}: {e}")
