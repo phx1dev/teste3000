@@ -376,12 +376,64 @@ def monitor_badges():
             print(f"❌ Erro no monitor de badges: {e}")
             time.sleep(CHECK_INTERVAL)
 
+def show_initial_presence():
+    """Mostra o status de presença atual de todos os usuários"""
+    print("📊 Status atual dos usuários:")
+    print("─" * 50)
+    
+    for group in MONITOR_GROUPS:
+        group_name = group["name"]
+        user_ids = group["user_ids"]
+        
+        if not user_ids:
+            continue
+            
+        print(f"\n👥 {group_name}:")
+        
+        # Obter presença atual de todos os usuários do grupo
+        current_presences = get_users_presence(user_ids)
+        
+        for presence in current_presences:
+            user_id = presence.get('userId')
+            if not user_id:
+                continue
+                
+            current_status = presence.get('userPresenceType', 0)
+            status_text = presence_type_to_text(current_status)
+            
+            # Obter nome do usuário
+            user_info = get_user_info(user_id)
+            user_name = user_info.get('displayName', f'Usuário {user_id}') if user_info else f'Usuário {user_id}'
+            
+            # Mostrar jogo se estiver jogando
+            game_info = ""
+            if current_status == 2 and presence.get('placeId'):  # Em Jogo
+                place_info = get_place_info(presence.get('placeId'))
+                if place_info:
+                    game_name = place_info.get('name', 'Jogo Desconhecido')
+                    game_info = f" - {game_name}"
+            
+            # Emoji baseado no status
+            status_emoji = {
+                0: "⭕",  # Offline
+                1: "🟢",  # Online
+                2: "🔵",  # Em Jogo  
+                3: "🟠"   # No Studio
+            }.get(current_status, "❓")
+            
+            print(f"  {status_emoji} {user_name}: {status_text}{game_info}")
+    
+    print("─" * 50)
+
 def monitor_presence():
     """Loop de monitoramento de presença"""
     print("📶 Iniciando monitoramento de presença...")
     
-    # Primeira execução para popular presença conhecida
-    print("📊 Carregando presença atual...")
+    # Mostrar presença inicial
+    show_initial_presence()
+    
+    # Primeira execução para popular presença conhecida (sem mostrar novamente)
+    print("📊 Carregando presença conhecida...")
     check_presence_changes()
     print("✅ Presença atual carregada!")
     
