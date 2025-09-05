@@ -5,14 +5,24 @@ import os
 from datetime import datetime
 
 # ====== CONFIGURAÇÕES QUE O USUÁRIO PODE ALTERAR ======
-USER_IDS = [1818113777,
-    # Adicione aqui os IDs dos usuários do Roblox que você quer monitorar
-    # Exemplo: 1, 261, 156
+
+# Configure seus grupos de monitoramento aqui
+# Cada grupo pode ter seu próprio webhook Discord e lista de usuários
+MONITOR_GROUPS = [
+    {
+        "name": "Grupo 1",
+        "webhook_url": "https://discord.com/api/webhooks/1413656858383880233/v5vplQKyAeU0Uj7x7vgzmevE46e7uqLMH_2U58rZpy8-musK_ZP01It8LY9A5dfvVaYh",
+        "user_ids": [1818113777]  # IDs dos usuários do Roblox para este grupo
+    },
+    {
+        "name": "Grupo 2",
+        "webhook_url": "",  # Cole aqui a URL do segundo webhook
+        "user_ids": []  # IDs dos usuários do Roblox para o segundo grupo
+    }
+    # Adicione mais grupos conforme necessário...
 ]
 
-DISCORD_WEBHOOK_URL = "https://discord.com/api/webhooks/1413656858383880233/v5vplQKyAeU0Uj7x7vgzmevE46e7uqLMH_2U58rZpy8-musK_ZP01It8LY9A5dfvVaYh"  # Cole aqui a URL do seu webhook do Discord
-
-CHECK_INTERVAL = 30  # Intervalo de checagem em segundos (60 = 1 minuto)
+CHECK_INTERVAL = 30  # Intervalo de checagem em segundos (30 = 30 segundos)
 
 # ====== NÃO ALTERE DAQUI PARA BAIXO ======
 
@@ -79,21 +89,9 @@ def get_badge_info(badge_id):
         print(f"❌ Erro ao obter info da badge {badge_id}: {e}")
         return None
 
-def get_game_info(universe_id):
-    """Obtém informações do jogo"""
-    try:
-        url = f"https://games.roblox.com/v1/games"
-        params = {'universeIds': universe_id}
-        response = requests.get(url, params=params)
-        if response.status_code == 200:
-            data = response.json()
-            games = data.get('data', [])
-            if games:
-                return games[0]
-        return None
-    except Exception as e:
-        print(f"❌ Erro ao obter info do jogo {universe_id}: {e}")
-        return None
+def get_badge_url(badge_id):
+    """Retorna a URL da badge no Roblox"""
+    return f"https://www.roblox.com/badges/{badge_id}"
 
 def get_user_info(user_id):
     """Obtém informações do usuário"""
@@ -127,10 +125,10 @@ def get_user_avatar(user_id):
         print(f"❌ Erro ao obter avatar do usuário {user_id}: {e}")
         return None
 
-def send_discord_notification(user_info, badge_info, game_info, avatar_url):
+def send_discord_notification(user_info, badge_info, badge_url, avatar_url, webhook_url, group_name):
     """Envia notificação para o Discord"""
-    if not DISCORD_WEBHOOK_URL:
-        print("⚠️  Discord Webhook URL não configurada!")
+    if not webhook_url:
+        print(f"⚠️  Webhook do {group_name} não configurado!")
         return
     
     try:
@@ -151,8 +149,8 @@ def send_discord_notification(user_info, badge_info, game_info, avatar_url):
                     "inline": True
                 },
                 {
-                    "name": "🎮 Jogo",
-                    "value": game_info.get('name', 'Jogo Desconhecido') if game_info else 'Jogo Desconhecido',
+                    "name": "🔗 Badge",
+                    "value": f"[Ver Badge]({badge_url})",
                     "inline": True
                 }
             ]
@@ -171,60 +169,70 @@ def send_discord_notification(user_info, badge_info, game_info, avatar_url):
             "embeds": [embed]
         }
         
-        response = requests.post(DISCORD_WEBHOOK_URL, json=payload)
+        response = requests.post(webhook_url, json=payload)
         if response.status_code == 204:
-            print("✅ Notificação enviada para o Discord!")
+            print(f"✅ Notificação enviada para {group_name}!")
         else:
-            print(f"❌ Erro ao enviar notificação: {response.status_code}")
+            print(f"❌ Erro ao enviar notificação para {group_name}: {response.status_code}")
             
     except Exception as e:
-        print(f"❌ Erro ao enviar notificação para Discord: {e}")
+        print(f"❌ Erro ao enviar notificação para {group_name}: {e}")
 
-def check_for_new_badges():
-    """Verifica se há novas badges para todos os usuários monitorados"""
+def check_for_new_badges(send_notifications=True):
+    """Verifica se há novas badges para todos os grupos monitorados"""
     known_badges = load_known_badges()
     
-    for user_id in USER_IDS:
-        print(f"🔍 Verificando usuário {user_id}...")
+    for group in MONITOR_GROUPS:
+        group_name = group["name"]
+        webhook_url = group["webhook_url"]
+        user_ids = group["user_ids"]
         
-        # Obter badges atuais do usuário
-        current_badges = get_user_badges(user_id)
-        current_badge_ids = set(badge['id'] for badge in current_badges)
-        
-        # Obter badges conhecidas para este usuário
-        user_known_badges = set(known_badges.get(str(user_id), []))
-        
-        # Encontrar novas badges
-        new_badge_ids = current_badge_ids - user_known_badges
-        
-        if new_badge_ids:
-            print(f"🎉 {len(new_badge_ids)} nova(s) badge(s) encontrada(s) para o usuário {user_id}!")
+        if not user_ids:
+            continue
             
-            # Obter informações do usuário uma vez
-            user_info = get_user_info(user_id)
-            avatar_url = get_user_avatar(user_id)
-            
-            for badge_id in new_badge_ids:
-                print(f"  📋 Processando badge {badge_id}...")
-                
-                # Obter informações da badge
-                badge_info = get_badge_info(badge_id)
-                if not badge_info:
-                    continue
-                
-                # Obter informações do jogo
-                game_info = None
-                if badge_info.get('statistics', {}).get('winRatePercentage') is not None:
-                    # Esta é uma badge de jogo, obter info do jogo
-                    universe_id = badge_info.get('statistics', {}).get('universeId')
-                    if universe_id:
-                        game_info = get_game_info(universe_id)
-                
-                # Enviar notificação
-                send_discord_notification(user_info, badge_info, game_info, avatar_url)
+        print(f"\n👥 {group_name}:")
         
-        # Atualizar badges conhecidas para este usuário
-        known_badges[str(user_id)] = list(current_badge_ids)
+        for user_id in user_ids:
+            print(f"  🔍 Verificando usuário {user_id}...")
+            
+            # Obter badges atuais do usuário
+            current_badges = get_user_badges(user_id)
+            current_badge_ids = set(badge['id'] for badge in current_badges)
+            
+            # Obter badges conhecidas para este usuário
+            user_known_badges = set(known_badges.get(str(user_id), []))
+            
+            # Encontrar novas badges
+            new_badge_ids = current_badge_ids - user_known_badges
+            
+            if new_badge_ids and send_notifications:
+                print(f"  🎉 {len(new_badge_ids)} nova(s) badge(s) encontrada(s) para o usuário {user_id}!")
+                
+                # Obter informações do usuário uma vez
+                user_info = get_user_info(user_id)
+                avatar_url = get_user_avatar(user_id)
+                
+                for badge_id in new_badge_ids:
+                    print(f"    📋 Processando badge {badge_id}...")
+                    
+                    # Obter informações da badge
+                    badge_info = get_badge_info(badge_id)
+                    if not badge_info:
+                        continue
+                    
+                    # Obter URL da badge
+                    badge_url = get_badge_url(badge_id)
+                    
+                    # Enviar notificação
+                    send_discord_notification(user_info, badge_info, badge_url, avatar_url, webhook_url, group_name)
+                    
+                    # Pequeno delay para evitar rate limiting
+                    time.sleep(2)
+            elif new_badge_ids and not send_notifications:
+                print(f"  📋 {len(new_badge_ids)} badge(s) existente(s) carregada(s) para o usuário {user_id}")
+            
+            # Atualizar badges conhecidas para este usuário
+            known_badges[str(user_id)] = list(current_badge_ids)
     
     # Salvar badges conhecidas
     save_known_badges(known_badges)
@@ -232,25 +240,39 @@ def check_for_new_badges():
 def main():
     """Função principal do programa"""
     print("🚀 Iniciando monitor de badges do Roblox...")
-    print(f"👥 Monitorando {len(USER_IDS)} usuário(s)")
+    
+    # Contar total de usuários em todos os grupos
+    total_users = sum(len(group["user_ids"]) for group in MONITOR_GROUPS)
+    active_groups = sum(1 for group in MONITOR_GROUPS if group["user_ids"] and group["webhook_url"])
+    
+    print(f"👥 Monitorando {total_users} usuário(s) em {len(MONITOR_GROUPS)} grupo(s)")
+    print(f"✅ {active_groups} grupo(s) ativo(s)")
     print(f"⏰ Intervalo de checagem: {CHECK_INTERVAL} segundos")
-    print(f"🔗 Discord Webhook: {'✅ Configurado' if DISCORD_WEBHOOK_URL else '❌ NÃO CONFIGURADO'}")
     print("─" * 50)
     
-    if not USER_IDS:
-        print("⚠️  AVISO: Nenhum ID de usuário configurado na lista USER_IDS!")
-        print("   Adicione IDs de usuários do Roblox na variável USER_IDS no início do arquivo.")
+    # Mostrar status de cada grupo
+    for group in MONITOR_GROUPS:
+        group_name = group["name"]
+        webhook_configured = "✅" if group["webhook_url"] else "❌"
+        user_count = len(group["user_ids"])
+        print(f"📋 {group_name}: {webhook_configured} Webhook | {user_count} usuário(s)")
+    
+    print("─" * 50)
+    
+    if total_users == 0:
+        print("⚠️  AVISO: Nenhum usuário configurado em nenhum grupo!")
+        print("   Adicione IDs de usuários nas listas user_ids dos grupos.")
         return
     
-    if not DISCORD_WEBHOOK_URL:
-        print("⚠️  AVISO: Discord Webhook URL não configurada!")
-        print("   Configure a variável DISCORD_WEBHOOK_URL no início do arquivo.")
-        print("   O programa irá funcionar, mas não enviará notificações.")
+    groups_without_webhook = [g["name"] for g in MONITOR_GROUPS if g["user_ids"] and not g["webhook_url"]]
+    if groups_without_webhook:
+        print(f"⚠️  AVISO: Grupos sem webhook configurado: {', '.join(groups_without_webhook)}")
+        print("   Estes grupos não enviarão notificações.")
         print()
     
-    # Primeira execução para popular badges conhecidas
+    # Primeira execução para popular badges conhecidas (sem enviar notificações)
     print("📊 Primeira verificação (carregando badges existentes)...")
-    check_for_new_badges()
+    check_for_new_badges(send_notifications=False)
     print("✅ Badges existentes carregadas!")
     print()
     
