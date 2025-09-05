@@ -79,11 +79,13 @@ def get_user_badges(user_id):
             
             response = requests.get(url, params=params)
             if response.status_code != 200:
-                print(f"❌ Erro ao obter badges do usuário {user_id}: {response.status_code}")
+                print(f"❌ Erro ao obter badges do usuário {user_id}: {response.status_code} - {response.text}")
                 break
                 
             data = response.json()
-            all_badges.extend(data.get('data', []))
+            batch_badges = data.get('data', [])
+            all_badges.extend(batch_badges)
+            print(f"    🔗 API Badges: +{len(batch_badges)} badges obtidas (total: {len(all_badges)})")
             
             cursor = data.get('nextPageCursor')
             if not cursor:
@@ -149,9 +151,11 @@ def get_users_presence(user_ids):
         payload = {"userIds": user_ids}
         response = requests.post(url, json=payload)
         if response.status_code == 200:
-            return response.json().get('userPresences', [])
+            data = response.json().get('userPresences', [])
+            print(f"    🔗 API Presença: {len(data)} usuários retornados")
+            return data
         else:
-            print(f"❌ Erro ao obter presença dos usuários: {response.status_code}")
+            print(f"❌ Erro ao obter presença dos usuários: {response.status_code} - {response.text}")
             return []
     except Exception as e:
         print(f"❌ Erro ao consultar presença: {e}")
@@ -311,6 +315,9 @@ def check_presence_changes():
         
         # Obter presença atual de todos os usuários do grupo
         current_presences = get_users_presence(user_ids)
+        if not current_presences:
+            print(f"    ⚠️  Nenhuma presença retornada pela API")
+            continue
         
         for presence in current_presences:
             user_id = presence.get('userId')
@@ -319,6 +326,8 @@ def check_presence_changes():
                 
             current_status = presence.get('userPresenceType', 0)
             last_status = last_presence.get(str(user_id), 0)
+            
+            print(f"    👤 Usuário {user_id}: {presence_type_to_text(last_status)} → {presence_type_to_text(current_status)}")
             
             # Verificar se houve mudança de Offline para Online/Jogo/Studio
             if last_status == 0 and current_status > 0:
@@ -405,7 +414,11 @@ def check_for_new_badges(send_notifications=True):
             
             # Obter badges atuais do usuário
             current_badges = get_user_badges(user_id)
+            if not current_badges:
+                print(f"    ⚠️  Nenhuma badge retornada pela API para usuário {user_id}")
+                continue
             current_badge_ids = set(badge['id'] for badge in current_badges)
+            print(f"    📊 {len(current_badge_ids)} badges encontradas")
             
             # Obter badges conhecidas para este usuário
             user_known_badges = set(known_badges.get(str(user_id), []))
