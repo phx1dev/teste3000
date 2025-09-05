@@ -12,7 +12,7 @@ USER_IDS = [1818113777,
 
 DISCORD_WEBHOOK_URL = "https://discord.com/api/webhooks/1413656858383880233/v5vplQKyAeU0Uj7x7vgzmevE46e7uqLMH_2U58rZpy8-musK_ZP01It8LY9A5dfvVaYh"  # Cole aqui a URL do seu webhook do Discord
 
-CHECK_INTERVAL = 60  # Intervalo de checagem em segundos (60 = 1 minuto)
+CHECK_INTERVAL = 30  # Intervalo de checagem em segundos (60 = 1 minuto)
 
 # ====== NÃO ALTERE DAQUI PARA BAIXO ======
 
@@ -79,9 +79,21 @@ def get_badge_info(badge_id):
         print(f"❌ Erro ao obter info da badge {badge_id}: {e}")
         return None
 
-def get_badge_url(badge_id):
-    """Retorna a URL da badge no Roblox"""
-    return f"https://www.roblox.com/badges/{badge_id}"
+def get_game_info(universe_id):
+    """Obtém informações do jogo"""
+    try:
+        url = f"https://games.roblox.com/v1/games"
+        params = {'universeIds': universe_id}
+        response = requests.get(url, params=params)
+        if response.status_code == 200:
+            data = response.json()
+            games = data.get('data', [])
+            if games:
+                return games[0]
+        return None
+    except Exception as e:
+        print(f"❌ Erro ao obter info do jogo {universe_id}: {e}")
+        return None
 
 def get_user_info(user_id):
     """Obtém informações do usuário"""
@@ -115,7 +127,7 @@ def get_user_avatar(user_id):
         print(f"❌ Erro ao obter avatar do usuário {user_id}: {e}")
         return None
 
-def send_discord_notification(user_info, badge_info, badge_url, avatar_url):
+def send_discord_notification(user_info, badge_info, game_info, avatar_url):
     """Envia notificação para o Discord"""
     if not DISCORD_WEBHOOK_URL:
         print("⚠️  Discord Webhook URL não configurada!")
@@ -139,8 +151,8 @@ def send_discord_notification(user_info, badge_info, badge_url, avatar_url):
                     "inline": True
                 },
                 {
-                    "name": "🔗 Badge",
-                    "value": f"[Ver Badge]({badge_url})",
+                    "name": "🎮 Jogo",
+                    "value": game_info.get('name', 'Jogo Desconhecido') if game_info else 'Jogo Desconhecido',
                     "inline": True
                 }
             ]
@@ -168,7 +180,7 @@ def send_discord_notification(user_info, badge_info, badge_url, avatar_url):
     except Exception as e:
         print(f"❌ Erro ao enviar notificação para Discord: {e}")
 
-def check_for_new_badges(send_notifications=True):
+def check_for_new_badges():
     """Verifica se há novas badges para todos os usuários monitorados"""
     known_badges = load_known_badges()
     
@@ -185,7 +197,7 @@ def check_for_new_badges(send_notifications=True):
         # Encontrar novas badges
         new_badge_ids = current_badge_ids - user_known_badges
         
-        if new_badge_ids and send_notifications:
+        if new_badge_ids:
             print(f"🎉 {len(new_badge_ids)} nova(s) badge(s) encontrada(s) para o usuário {user_id}!")
             
             # Obter informações do usuário uma vez
@@ -200,16 +212,16 @@ def check_for_new_badges(send_notifications=True):
                 if not badge_info:
                     continue
                 
-                # Obter URL da badge
-                badge_url = get_badge_url(badge_id)
+                # Obter informações do jogo
+                game_info = None
+                if badge_info.get('statistics', {}).get('winRatePercentage') is not None:
+                    # Esta é uma badge de jogo, obter info do jogo
+                    universe_id = badge_info.get('statistics', {}).get('universeId')
+                    if universe_id:
+                        game_info = get_game_info(universe_id)
                 
                 # Enviar notificação
-                send_discord_notification(user_info, badge_info, badge_url, avatar_url)
-                
-                # Pequeno delay para evitar rate limiting
-                time.sleep(2)
-        elif new_badge_ids and not send_notifications:
-            print(f"📋 {len(new_badge_ids)} badge(s) existente(s) carregada(s) para o usuário {user_id}")
+                send_discord_notification(user_info, badge_info, game_info, avatar_url)
         
         # Atualizar badges conhecidas para este usuário
         known_badges[str(user_id)] = list(current_badge_ids)
@@ -236,9 +248,9 @@ def main():
         print("   O programa irá funcionar, mas não enviará notificações.")
         print()
     
-    # Primeira execução para popular badges conhecidas (sem enviar notificações)
+    # Primeira execução para popular badges conhecidas
     print("📊 Primeira verificação (carregando badges existentes)...")
-    check_for_new_badges(send_notifications=False)
+    check_for_new_badges()
     print("✅ Badges existentes carregadas!")
     print()
     
