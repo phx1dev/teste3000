@@ -18,7 +18,7 @@ MONITOR_GROUPS = [
     {
         "name": "Comunidade Civil",
         "webhook_url": "https://discord.com/api/webhooks/1413663842767994980/gGaGf8szgsSrEQ2OytcSzhODmLu0X5blNcZNAlcWTh6c1z8fO1Ya0ZXEBukUuPDxrgx8",  # Cole aqui a URL do segundo webhook
-        "user_ids": [1390165577, 2, 1]  # Adicione aqui os IDs dos usuários do segundo grupo
+        "user_ids": [1390165577]  # Adicione aqui os IDs dos usuários do segundo grupo
     }
     # Adicione mais grupos conforme necessário...
 ]
