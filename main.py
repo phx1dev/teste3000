@@ -16,8 +16,8 @@ MONITOR_GROUPS = [
     },
     {
         "name": "Grupo 2",
-        "webhook_url": "",  # Cole aqui a URL do segundo webhook
-        "user_ids": []  # IDs dos usuários do Roblox para o segundo grupo
+        "webhook_url": "https://discord.com/api/webhooks/SEU_WEBHOOK_AQUI",  # Cole aqui a URL do segundo webhook
+        "user_ids": [261, 156, 1]  # Adicione aqui os IDs dos usuários do segundo grupo
     }
     # Adicione mais grupos conforme necessário...
 ]
