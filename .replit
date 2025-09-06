@@ -31,3 +31,7 @@ channel = "stable-25_05"
 [deployment]
 deploymentTarget = "vm"
 run = ["python", "main.py"]
+
+[[ports]]
+localPort = 5000
+externalPort = 80

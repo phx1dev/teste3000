@@ -4,6 +4,7 @@ import time
 import os
 import threading
 from datetime import datetime
+from keep_alive import keep_alive
 
 # ====== CONFIGURAÇÕES QUE O USUÁRIO PODE ALTERAR ======
 
@@ -565,6 +566,9 @@ def main():
         print("   Estes grupos não enviarão notificações.")
         print()
     
+    # Iniciar servidor keep-alive primeiro
+    keep_alive()
+    
     # Criar e iniciar threads para monitoramento
     try:
         print("🚀 Iniciando sistemas de monitoramento em paralelo...")
@@ -577,7 +581,8 @@ def main():
         presence_thread = threading.Thread(target=monitor_presence, daemon=True)
         presence_thread.start()
         
-        print("✅ Ambos os monitores iniciados!")
+        print("✅ Todos os sistemas iniciados!")
+        print("🌐 Servidor Keep-Alive: Mantém o bot ativo 24/7")
         print("🏆 Monitor de Badges: Detecta novas badges conquistadas")
         print("📶 Monitor de Presença: Detecta quando usuários ficam online")
         print("─" * 50)

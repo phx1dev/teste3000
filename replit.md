@@ -2,7 +2,7 @@
 
 ## Overview
 
-This is a Python-based monitoring application that tracks Roblox user badges and sends notifications to Discord webhooks when new badges are acquired. The system periodically checks specified Roblox user accounts for badge updates and compares them against a local database of known badges to detect new acquisitions.
+This is a comprehensive Python-based monitoring application that tracks Roblox user badges and online presence, sending real-time notifications to Discord webhooks. The system features 24/7 operation with multi-group support, parallel monitoring of both badge achievements and online status changes, and includes a keep-alive mechanism for continuous operation on Replit's free tier.
 
 ## User Preferences
 
@@ -101,3 +101,66 @@ When a new badge is detected, the bot sends a Discord embed containing:
 **External Services**
 - Roblox APIs for badge and user data
 - Discord webhooks for notifications
+
+## 24/7 Operation & Keep-Alive System
+
+### Flask Keep-Alive Server
+
+**Components:**
+- `keep_alive.py` - Flask web server for 24/7 operation
+- Runs on port 5000 with endpoints:
+  - `/` - Returns "Bot de Monitoramento Roblox Ativo! 🏆📶"
+  - `/status` - Returns JSON status with uptime info
+
+**How It Works:**
+- Flask server runs in a separate daemon thread
+- Provides public URL for external monitoring services
+- Compatible with UptimeRobot to ping every 5 minutes
+- Keeps Replit project active on free tier
+
+### Setting Up 24/7 Operation
+
+**Option 1: UptimeRobot (Free Tier)**
+1. Copy your Replit's public URL: `https://[project-name].[username].repl.co`
+2. Create free UptimeRobot account
+3. Add HTTP monitor pointing to your Replit URL
+4. Set check interval to 5 minutes
+5. UptimeRobot will ping your server every 5 minutes keeping it active
+
+**Option 2: Replit Deployment (Paid)**
+1. Use the configured deployment settings (Reserved VM)
+2. Click "Deploy" button in Replit interface
+3. Choose Reserved VM for 24/7 operation
+4. Bot runs continuously in cloud infrastructure
+
+### Multi-Group Architecture
+
+**Groups Configuration:**
+```python
+GROUPS = {
+    "Group Name": {
+        "webhook": "discord_webhook_url",
+        "users": [user_id_1, user_id_2]
+    }
+}
+```
+
+**Features:**
+- Multiple Discord webhooks for different user groups
+- Separate notifications per group
+- Independent monitoring per group
+- Supports unlimited groups and users
+
+### Recent Changes (Sept 6, 2025)
+
+**Keep-Alive Integration:**
+- Added Flask web server for 24/7 operation
+- Integrated keep-alive system with main monitoring loop
+- Server starts automatically with monitoring systems
+- Public URL available for external monitoring services
+
+**Enhanced Monitoring:**
+- Parallel badge and presence monitoring using threading
+- Real-time online status detection (Offline → Online/In Game/Studio)
+- Dual notification system for badges and presence changes
+- Persistent state management for both badges and presence
