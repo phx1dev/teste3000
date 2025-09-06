@@ -19,7 +19,7 @@ MONITOR_GROUPS = [
     {
         "name": "Comunidade Civil",
         "webhook_url": "https://discord.com/api/webhooks/1413663842767994980/gGaGf8szgsSrEQ2OytcSzhODmLu0X5blNcZNAlcWTh6c1z8fO1Ya0ZXEBukUuPDxrgx8",  # Cole aqui a URL do segundo webhook
-        "user_ids": [1390165577]  # Adicione aqui os IDs dos usuários do segundo grupo
+        "user_ids": [1390165577,679520330]  # Adicione aqui os IDs dos usuários do segundo grupo
     }
     # Adicione mais grupos conforme necessário...
 ]
@@ -523,11 +523,15 @@ def check_for_new_badges(send_notifications=True):
                     
                     # Pequeno delay para evitar rate limiting
                     time.sleep(2)
+                
+                # Atualizar badges conhecidas APENAS quando enviar notificações
+                known_badges[str(user_id)] = list(current_badge_ids)
             elif new_badge_ids and not send_notifications:
                 print(f"  📋 {len(new_badge_ids)} badge(s) existente(s) carregada(s) para o usuário {user_id}")
-            
-            # Atualizar badges conhecidas para este usuário
-            known_badges[str(user_id)] = list(current_badge_ids)
+                # Atualizar badges conhecidas na primeira execução (carregamento inicial)
+                known_badges[str(user_id)] = list(current_badge_ids)
+            elif not new_badge_ids:
+                print(f"  ✅ Nenhuma badge nova para o usuário {user_id}")
     
     # Salvar badges conhecidas
     save_known_badges(known_badges)
