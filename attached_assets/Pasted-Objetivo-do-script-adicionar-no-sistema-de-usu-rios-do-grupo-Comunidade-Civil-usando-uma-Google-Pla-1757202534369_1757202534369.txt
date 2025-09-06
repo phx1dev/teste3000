@@ -1,0 +1,70 @@
+Objetivo do script
+
+adicionar no sistema de usuários do grupo Comunidade Civil usando uma Google Planilha.
+O script deve:
+
+Ler os IDs e status dos usuários do grupo Comunidade Civil da planilha a cada 20 minutos.
+
+Registrar no monitoramento qualquer usuário novo desse grupo que aparecer na planilha.
+
+Remover do monitoramento usuários do grupo que não estiverem mais na planilha.
+
+Atualizar o status (ATIVO / INATIVO) de usuários existentes do grupo se houver alteração.
+
+O script não deve monitorar usuários de outros grupos, apenas aqueles listados na planilha do grupo Comunidade Civil.
+
+Configuração da planilha
+
+Link da planilha: https://docs.google.com/spreadsheets/d/14XWmdfTkK5CWD4bKUgssFbwcZf_ICpsaqY3-BG6wAhY/edit?usp=sharing
+
+Coluna A (A1:A20): IDs dos usuários do grupo Comunidade Civil.
+
+Coluna B (B1:B20): Status do usuário, com validação de dados permitindo apenas ATIVO ou INATIVO.
+
+Linha 1 pode ser usada como cabeçalho (ID do usuário | Status).
+
+Conta de serviço para acesso
+
+E-mail da conta de serviço: replitmonitor@monitoramentoreplit.iam.gserviceaccount.com
+
+Chave (JSON): arquivo credentials.json gerado no Google Cloud.
+
+A planilha deve ser compartilhada com o e-mail da conta de serviço com permissão de Editor, para que o script possa ler e atualizar os dados.
+
+Fluxo do script
+
+Importar bibliotecas: gspread (planilha), oauth2client.service_account (autenticação), time (intervalo).
+
+Definir escopo de permissões para leitura e escrita na planilha e no Google Drive.
+
+Carregar o arquivo credentials.json e criar as credenciais da conta de serviço.
+
+Autenticar o cliente do gspread com as credenciais.
+
+Abrir a planilha pelo URL e selecionar a primeira aba (sheet1).
+
+Criar uma lista interna (monitoramento) para armazenar os IDs e status apenas dos usuários do grupo Comunidade Civil.
+
+Iniciar um loop infinito, rodando o monitoramento a cada 20 minutos:
+
+Ler os dados da planilha (get_all_records) e extrair os IDs e status do grupo Comunidade Civil.
+
+Adicionar ao monitoramento usuários novos desse grupo.
+
+Remover do monitoramento usuários que não estiverem mais na planilha do grupo.
+
+Atualizar o status dos usuários existentes do grupo se houver mudança.
+
+Esperar 20 minutos antes de repetir (time.sleep(1200)).
+
+Resumo
+
+O script mantém automaticamente a lista de monitoramento do grupo Comunidade Civil sincronizada com a planilha, detectando:
+
+Novos usuários do grupo → adiciona.
+
+Usuários do grupo removidos → exclui.
+
+Alterações de status → atualiza.
+
+O monitoramento não se aplica a nenhum outro grupo, apenas aos usuários listados na planilha do grupo Comunidade Civil.

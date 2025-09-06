@@ -1,0 +1,13 @@
+{
+  "type": "service_account",
+  "project_id": "monitoramentoreplit",
+  "private_key_id": "93b7777320a9c688ad32695cb4025b28cbc7d52c",
+  "private_key": "-----BEGIN PRIVATE KEY-----\nMIIEvQIBADANBgkqhkiG9w0BAQEFAASCBKcwggSjAgEAAoIBAQCR7X4+74N6ALZx\nMeSvaJUmxNxYlsNMMee1rmppkz2Fjum9BpP4B+bPzioObyOunywxttaRahPGM9X4\n3CRu44FP2kG9oQRJ4E3ya+0bSKZTKQzqiVTIS24soBQUCz8yAhg6W78hMX5A4hNs\nHnxQlR+2WqGgAbayQ7VJBfugl88EFdU6oVQXQmvYhnbMvJSxVSrtJ9iTIc9cD3mc\nYZwtGDA7KmzMaPPbLI9gSQNwtn+4YM7+h99hJWNUSntps6RneLwjIiicxYmX6MX3\nufQwMqgb6+ynaa21loXEYOivkNFhwiivZITEGdez2M6Qo1S2dRiEiCgnhwxVpgAi\n6YRF76y9AgMBAAECggEAOLlLoKUzw0HxqTCOx0xs5eQSDvGTutOPUUUaIi3U9Uyn\nOQ4MiJZxtwdZu8Ch6yf+YtjCsUW9qAbQPus70krnIiYh9ddYNmtVgU1Inplv5dWI\nKsb1SOJhUkFrbJsuln7P8idltT5q6Ee46wcypZRB/n1eZDcmUEcXeeo0dKluFBTe\nJzCbakjygFllvDBXJAtqalo9CWn8osKPFZ9hGf6O1DvNAHKU7N6N41R3hVXCtjMl\ng3xgO87wt3yRt/Q+xMHSrEoKqOtethEzntAcFyuQ3oWpOxmqWAzw4kVhMvlXncH1\np3PSCehau+lE1yBzDgIq3EcDlVfbHUJvCsRsS3H3dQKBgQDJnjVeiGqqem7XVpAo\nhsqo6C4zwBCp3UWkqjGkI4Vp9OanjsYvEa0Liv0vNY21R7cbTHX4CNaukX4HhKR6\nFZdpSa0S63ynTTfDYDlGebyMW9wDj7MeQKHN+1KOzuQb5qrL9vZLtd8Dod/8bf9B\ncC3zMQA9Qfa9/lOxwJrLhqsLPwKBgQC5SdnW9avX0wEP2DD91WZWMA8a0GdbXvDi\nUcyyaeg5N8HxtydAef6/qA0+s/TTmvDVBaEJDsbTzuo53b5vE1bAsdY1oPwc35ly\nvT/pzah2wPOBGOPRIV/+C9wPkj8MLFIlJRtAucsoHjEMQVFcDilkTzN3cw9pfhXW\ngbTHhUW1AwKBgQC6INo4OUvvsjOdjIZtQ3LYV/A/SjKX/nSKvawyUbCazsIZMc94\nKKNOIrP130TBdEFwbDgEEXTPl/V3T1bgdgpf4upqqwdbFAhE0BJQI5aTJUKJ7yF2\n7kfx9vCSciFYOKy4u3dJEc+edNRpH8skSEHDXxtPchQt9hqh4KOG/P3u1QKBgDYc\nRhzLpAKkYWQCK9SFNJyo7lBTWkvJvyko4FGeMi47hU0UwsbGmcnYxv1vymjdj8V2\nHmApy5DhlW+OvWVszWH6zWbd+6Jm/kYO1JJv9+muUa562VUinQjw57Q4bmccrmSg\noIPXfmfZ4VMF5D+w9w+PPaV9mZuiMbhyKpw15HSHAoGAINeAzinvzQso7lofWtqJ\n6QAjyz9Guojc2BqLNL/z9kI+ZHKIx0ibAy8ibHRYtWRn6I/64nA5zURowjOaHUn9\nyTs2c8qyV/OPcAXRr039mYM5JCKnsPlgmKGD5gKsxLsJqOf10BQsaBXDQwLXBLjL\niklSPyCUKS1LUJkZbJBI6HM=\n-----END PRIVATE KEY-----\n",
+  "client_email": "replitmonitor@monitoramentoreplit.iam.gserviceaccount.com",
+  "client_id": "114047444031033762803",
+  "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+  "token_uri": "https://oauth2.googleapis.com/token",
+  "auth_provider_x509_cert_url": "https://www.googleapis.com/oauth2/v1/certs",
+  "client_x509_cert_url": "https://www.googleapis.com/robot/v1/metadata/x509/replitmonitor%40monitoramentoreplit.iam.gserviceaccount.com",
+  "universe_domain": "googleapis.com"
+}
