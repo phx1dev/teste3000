@@ -29,5 +29,3 @@ def keep_alive():
     flask_thread.start()
     
     print("✅ Servidor keep-alive iniciado na porta 5000")
-    print("🔗 URL pública: https://[seu-repl-name].[seu-username].repl.co")
-    print("📡 Configure o UptimeRobot para monitorar essa URL a cada 5 minutos")
