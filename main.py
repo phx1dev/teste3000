@@ -14,6 +14,7 @@ from api_utils import (
     get_place_info_robust,
     print_api_stats
 )
+from sheets_sync import sheets_sync
 
 # ====== CONFIGURAÇÕES QUE O USUÁRIO PODE ALTERAR ======
 
@@ -37,9 +38,59 @@ CHECK_INTERVAL = 30  # Intervalo de checagem em segundos (30 = 30 segundos)
 
 # ====== NÃO ALTERE DAQUI PARA BAIXO ======
 
+# Variáveis globais para controle dinâmico (Google Sheets)
+current_monitor_groups = MONITOR_GROUPS.copy()
+groups_lock = threading.Lock()  # Para thread safety
+
 # Arquivos para armazenar dados
 BADGES_FILE = "known_badges.json"
 PRESENCE_FILE = "last_presence.json"
+
+# ==================== CALLBACKS PARA GOOGLE SHEETS ====================
+
+def get_current_groups_config():
+    """Callback para obter configuração atual dos grupos (para Google Sheets)"""
+    with groups_lock:
+        # Converte a estrutura de lista para dicionário para compatibilidade com sheets_sync
+        groups_dict = {}
+        for group in current_monitor_groups:
+            if group["name"] == "Comunidade Civil":
+                groups_dict[group["name"]] = {
+                    "webhook": group["webhook_url"],
+                    "users": group["user_ids"].copy()
+                }
+        return groups_dict
+
+def update_groups_config(new_groups):
+    """Callback para atualizar configuração dos grupos (do Google Sheets)"""
+    global current_monitor_groups
+    try:
+        with groups_lock:
+            # Encontra e atualiza apenas o grupo "Comunidade Civil"
+            if "Comunidade Civil" not in new_groups:
+                print("❌ Grupo 'Comunidade Civil' não encontrado na nova configuração")
+                return False
+            
+            new_civil_config = new_groups["Comunidade Civil"]
+            
+            # Atualiza a lista atual
+            updated_groups = []
+            for group in current_monitor_groups:
+                if group["name"] == "Comunidade Civil":
+                    # Atualiza apenas a lista de usuários, preserva webhook
+                    updated_group = group.copy()
+                    updated_group["user_ids"] = new_civil_config["users"].copy()
+                    updated_groups.append(updated_group)
+                    print(f"✅ Grupo 'Comunidade Civil' atualizado: {len(updated_group['user_ids'])} usuário(s)")
+                else:
+                    updated_groups.append(group)
+            
+            current_monitor_groups = updated_groups
+            return True
+            
+    except Exception as e:
+        print(f"❌ Erro ao atualizar configuração dos grupos: {e}")
+        return False
 
 def load_known_badges():
     """Carrega as badges já conhecidas do arquivo"""
@@ -268,7 +319,11 @@ def check_presence_changes():
     """Verifica mudanças de presença para todos os grupos monitorados"""
     last_presence = load_last_presence()
     
-    for group in MONITOR_GROUPS:
+    # Usa configuração atual (pode ter sido modificada pelo Google Sheets)
+    with groups_lock:
+        groups_to_check = current_monitor_groups.copy()
+    
+    for group in groups_to_check:
         group_name = group["name"]
         webhook_url = group["webhook_url"]
         user_ids = group["user_ids"]
@@ -373,7 +428,10 @@ def show_initial_presence():
     print("📊 Status atual dos usuários:")
     print("─" * 50)
     
-    for group in MONITOR_GROUPS:
+    with groups_lock:
+        groups_to_check = current_monitor_groups.copy()
+    
+    for group in groups_to_check:
         group_name = group["name"]
         user_ids = group["user_ids"]
         
@@ -470,7 +528,11 @@ def check_for_new_badges(send_notifications=True):
     """Verifica se há novas badges para todos os grupos monitorados"""
     known_badges = load_known_badges()
     
-    for group in MONITOR_GROUPS:
+    # Usa configuração atual (pode ter sido modificada pelo Google Sheets)
+    with groups_lock:
+        groups_to_check = current_monitor_groups.copy()
+    
+    for group in groups_to_check:
         group_name = group["name"]
         webhook_url = group["webhook_url"]
         user_ids = group["user_ids"]
@@ -534,17 +596,22 @@ def main():
     print("🚀 Iniciando Monitor de Badges e Presença do Roblox...")
     
     # Contar total de usuários em todos os grupos
-    total_users = sum(len(group["user_ids"]) for group in MONITOR_GROUPS)
-    active_groups = sum(1 for group in MONITOR_GROUPS if group["user_ids"] and group["webhook_url"])
+    with groups_lock:
+        total_users = sum(len(group["user_ids"]) for group in current_monitor_groups)
+        active_groups = sum(1 for group in current_monitor_groups if group["user_ids"] and group["webhook_url"])
+        group_count = len(current_monitor_groups)
     
-    print(f"👥 Monitorando {total_users} usuário(s) em {len(MONITOR_GROUPS)} grupo(s)")
+    print(f"👥 Monitorando {total_users} usuário(s) em {group_count} grupo(s)")
     print(f"✅ {active_groups} grupo(s) ativo(s)")
     print(f"⏰ Intervalo de checagem: {CHECK_INTERVAL} segundos")
     print("🏆 Monitoramento: Badges + 📶 Presença Online")
     print("─" * 50)
     
     # Mostrar status de cada grupo
-    for group in MONITOR_GROUPS:
+    with groups_lock:
+        groups_to_show = current_monitor_groups.copy()
+    
+    for group in groups_to_show:
         group_name = group["name"]
         webhook_configured = "✅" if group["webhook_url"] else "❌"
         user_count = len(group["user_ids"])
@@ -557,7 +624,8 @@ def main():
         print("   Adicione IDs de usuários nas listas user_ids dos grupos.")
         return
     
-    groups_without_webhook = [g["name"] for g in MONITOR_GROUPS if g["user_ids"] and not g["webhook_url"]]
+    with groups_lock:
+        groups_without_webhook = [g["name"] for g in current_monitor_groups if g["user_ids"] and not g["webhook_url"]]
     if groups_without_webhook:
         print(f"⚠️  AVISO: Grupos sem webhook configurado: {', '.join(groups_without_webhook)}")
         print("   Estes grupos não enviarão notificações.")
@@ -578,10 +646,18 @@ def main():
         presence_thread = threading.Thread(target=monitor_presence, daemon=True)
         presence_thread.start()
         
+        # Iniciar sistema de sincronização Google Sheets
+        print("📊 Iniciando sistema de sincronização Google Sheets...")
+        sheets_success = sheets_sync.start(get_current_groups_config, update_groups_config)
+        
         print("✅ Todos os sistemas iniciados!")
         print("🌐 Servidor Keep-Alive: Mantém o bot ativo 24/7")
         print("🏆 Monitor de Badges: Detecta novas badges conquistadas")
         print("📶 Monitor de Presença: Detecta quando usuários ficam online")
+        if sheets_success:
+            print("📊 Sincronização Google Sheets: Gerencia usuários automaticamente (20min)")
+        else:
+            print("⚠️  Sincronização Google Sheets: Falha na inicialização (funcionamento manual)")
         print("─" * 50)
         
         # Manter o programa rodando
