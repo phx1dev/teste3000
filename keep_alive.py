@@ -17,7 +17,7 @@ def status():
     }
 
 def run_flask():
-    """Executa o servidor Flask em thread separada"""
+    """Executa o servidor Falask em thread separada"""
     app.run(host='0.0.0.0', port=5000, debug=False, use_reloader=False)
 
 def keep_alive():
