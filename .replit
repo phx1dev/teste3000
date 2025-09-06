@@ -18,12 +18,13 @@ args = "Roblox Badge Monitor"
 name = "Roblox Badge Monitor"
 author = "agent"
 
+[workflows.workflow.metadata]
+outputType = "webview"
+
 [[workflows.workflow.tasks]]
 task = "shell.exec"
 args = "python main.py"
-
-[workflows.workflow.metadata]
-outputType = "console"
+waitForPort = 5000
 
 [nix]
 channel = "stable-25_05"
@@ -34,3 +35,4 @@ run = ["python", "main.py"]
 
 [[ports]]
 localPort = 5000
+externalPort = 80
