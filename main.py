@@ -5,6 +5,15 @@ import os
 import threading
 from datetime import datetime
 from keep_alive import keep_alive
+from api_utils import (
+    get_user_badges_robust,
+    get_users_presence_robust, 
+    get_user_info_robust,
+    get_user_avatar_robust,
+    get_badge_info_robust,
+    get_place_info_robust,
+    print_api_stats
+)
 
 # ====== CONFIGURAÇÕES QUE O USUÁRIO PODE ALTERAR ======
 
@@ -63,140 +72,74 @@ def save_last_presence(presence_data):
         json.dump(presence_data, f, indent=2)
 
 def get_user_badges(user_id):
-    """Obtém todas as badges de um usuário"""
-    try:
-        url = f"https://badges.roblox.com/v1/users/{user_id}/badges"
-        params = {
-            'limit': 100,
-            'sortOrder': 'Desc'
-        }
-        
-        all_badges = []
-        cursor = None
-        
-        while True:
-            if cursor:
-                params['cursor'] = cursor
-            
-            response = requests.get(url, params=params)
-            if response.status_code != 200:
-                print(f"❌ Erro ao obter badges do usuário {user_id}: {response.status_code} - {response.text}")
-                break
-                
-            data = response.json()
-            batch_badges = data.get('data', [])
-            all_badges.extend(batch_badges)
-            print(f"    🔗 API Badges: +{len(batch_badges)} badges obtidas (total: {len(all_badges)})")
-            
-            cursor = data.get('nextPageCursor')
-            if not cursor:
-                break
-        
-        return all_badges
-    except Exception as e:
-        print(f"❌ Erro ao consultar badges do usuário {user_id}: {e}")
+    """Obtém todas as badges de um usuário (versão robusta)"""
+    badges, success, error = get_user_badges_robust(user_id)
+    
+    if not success:
+        print(f"❌ Erro ao obter badges do usuário {user_id}: {error}")
         return []
+    
+    if not badges:
+        print(f"    ⚠️  Nenhuma badge retornada pela API para usuário {user_id}")
+    
+    return badges
 
 def get_badge_info(badge_id):
-    """Obtém informações detalhadas de uma badge"""
-    try:
-        url = f"https://badges.roblox.com/v1/badges/{badge_id}"
-        response = requests.get(url)
-        if response.status_code == 200:
-            return response.json()
+    """Obtém informações detalhadas de uma badge (versão robusta)"""
+    info, success, error = get_badge_info_robust(badge_id)
+    
+    if not success:
+        print(f"❌ Erro ao obter info da badge {badge_id}: {error}")
         return None
-    except Exception as e:
-        print(f"❌ Erro ao obter info da badge {badge_id}: {e}")
-        return None
+        
+    return info
 
 def get_badge_url(badge_id):
     """Retorna a URL da badge no Roblox"""
     return f"https://www.roblox.com/badges/{badge_id}"
 
 def get_user_info(user_id):
-    """Obtém informações do usuário"""
-    try:
-        url = f"https://users.roblox.com/v1/users/{user_id}"
-        response = requests.get(url)
-        if response.status_code == 200:
-            return response.json()
+    """Obtém informações do usuário (versão robusta)"""
+    info, success, error = get_user_info_robust(user_id)
+    
+    if not success:
+        print(f"❌ Erro ao obter info do usuário {user_id}: {error}")
         return None
-    except Exception as e:
-        print(f"❌ Erro ao obter info do usuário {user_id}: {e}")
-        return None
+        
+    return info
 
 def get_user_avatar(user_id):
-    """Obtém o avatar/headshot do usuário"""
-    try:
-        url = "https://thumbnails.roblox.com/v1/users/avatar-headshot"
-        params = {
-            'userIds': user_id,
-            'size': '150x150',
-            'format': 'Png',
-            'isCircular': False
-        }
-        response = requests.get(url, params=params)
-        if response.status_code == 200:
-            data = response.json()
-            if data.get('data') and len(data['data']) > 0:
-                return data['data'][0].get('imageUrl')
+    """Obtém o avatar/headshot do usuário (versão robusta)"""
+    avatar_url, success, error = get_user_avatar_robust(user_id)
+    
+    if not success:
+        print(f"❌ Erro ao obter avatar do usuário {user_id}: {error}")
         return None
-    except Exception as e:
-        print(f"❌ Erro ao obter avatar do usuário {user_id}: {e}")
-        return None
+        
+    return avatar_url
 
 def get_users_presence(user_ids):
-    """Obtém o status de presença de múltiplos usuários"""
-    try:
-        url = "https://presence.roblox.com/v1/presence/users"
-        headers = {
-            'Content-Type': 'application/json',
-            'Accept': 'application/json'
-        }
-        payload = {"userIds": user_ids}
-        response = requests.post(url, json=payload, headers=headers)
-        
-        if response.status_code == 200:
-            data = response.json().get('userPresences', [])
-            print(f"    🔗 API Presença: {len(data)} usuários retornados")
-            # Debug: mostrar resposta da API
-            for presence in data:
-                user_id = presence.get('userId')
-                status = presence.get('userPresenceType', 0)
-                print(f"    🔍 Debug: Usuário {user_id} = Status {status} ({presence_type_to_text(status)})")
-            return data
-        else:
-            print(f"❌ Erro ao obter presença dos usuários: {response.status_code}")
-            print(f"    Resposta: {response.text}")
-            return []
-    except Exception as e:
-        print(f"❌ Erro ao consultar presença: {e}")
+    """Obtém o status de presença de múltiplos usuários (versão robusta)"""
+    presences, success, error = get_users_presence_robust(user_ids)
+    
+    if not success:
+        print(f"❌ Erro ao obter presença dos usuários: {error}")
         return []
+        
+    return presences
 
 def get_place_info(place_id):
-    """Obtém informações do jogo/place"""
-    try:
-        url = "https://games.roblox.com/v1/games/multiget-place-details"
-        params = {'placeIds': str(place_id)}
-        headers = {
-            'Accept': 'application/json'
-        }
-        response = requests.get(url, params=params, headers=headers)
+    """Obtém informações do jogo/place (versão robusta)"""
+    if not place_id:
+        return None
         
-        if response.status_code == 200:
-            data = response.json()
-            if data and len(data) > 0:
-                print(f"    🎮 Jogo encontrado: {data[0].get('name', 'Nome não encontrado')}")
-                return data[0]
-            else:
-                print(f"    ⚠️  Nenhum jogo encontrado para place ID {place_id}")
-        else:
-            print(f"❌ Erro ao obter info do place {place_id}: {response.status_code}")
-            print(f"    Resposta: {response.text}")
+    info, success, error = get_place_info_robust(place_id)
+    
+    if not success:
+        print(f"    ⚠️  Erro ao obter info do place {place_id}: {error}")
         return None
-    except Exception as e:
-        print(f"❌ Erro ao obter info do place {place_id}: {e}")
-        return None
+        
+    return info
 
 def presence_type_to_text(presence_type):
     """Converte o código de presença para texto legível"""
@@ -380,7 +323,7 @@ def check_presence_changes():
     save_last_presence(last_presence)
 
 def monitor_badges():
-    """Loop de monitoramento de badges"""
+    """Loop de monitoramento de badges com melhorias de confiabilidade"""
     print("🏆 Iniciando monitoramento de badges...")
     
     # Primeira execução para popular badges conhecidas (sem enviar notificações)
@@ -388,15 +331,42 @@ def monitor_badges():
     check_for_new_badges(send_notifications=False)
     print("✅ Badges existentes carregadas!")
     
+    # Contador para estatísticas
+    cycle_count = 0
+    consecutive_errors = 0
+    max_consecutive_errors = 5
+    
     # Loop principal de badges
     while True:
         try:
+            cycle_count += 1
             print(f"\n🔄 [BADGES] Verificando... ({datetime.now().strftime('%H:%M:%S')})")
+            
+            # Executar verificação
             check_for_new_badges()
+            
+            # Reset contador de erros em caso de sucesso
+            consecutive_errors = 0
+            
+            # Mostrar estatísticas a cada 10 ciclos
+            if cycle_count % 10 == 0:
+                print(f"\n📊 [STATS BADGES] Ciclo {cycle_count} completado")
+                print_api_stats()
+            
             time.sleep(CHECK_INTERVAL)
+            
         except Exception as e:
-            print(f"❌ Erro no monitor de badges: {e}")
-            time.sleep(CHECK_INTERVAL)
+            consecutive_errors += 1
+            print(f"❌ Erro no monitor de badges (#{consecutive_errors}): {e}")
+            
+            # Se muitos erros consecutivos, aumentar delay
+            if consecutive_errors >= max_consecutive_errors:
+                extended_sleep = CHECK_INTERVAL * 2
+                print(f"⚠️  Muitos erros consecutivos, aguardando {extended_sleep}s...")
+                time.sleep(extended_sleep)
+                consecutive_errors = 0  # Reset após delay estendido
+            else:
+                time.sleep(CHECK_INTERVAL)
 
 def show_initial_presence():
     """Mostra o status de presença atual de todos os usuários"""
@@ -448,7 +418,7 @@ def show_initial_presence():
     print("─" * 50)
 
 def monitor_presence():
-    """Loop de monitoramento de presença"""
+    """Loop de monitoramento de presença com melhorias de confiabilidade"""
     print("📶 Iniciando monitoramento de presença...")
     
     # Mostrar presença inicial
@@ -459,15 +429,42 @@ def monitor_presence():
     check_presence_changes()
     print("✅ Presença atual carregada!")
     
+    # Contador para estatísticas
+    cycle_count = 0
+    consecutive_errors = 0
+    max_consecutive_errors = 5
+    
     # Loop principal de presença
     while True:
         try:
+            cycle_count += 1
             print(f"\n📶 [PRESENÇA] Verificando... ({datetime.now().strftime('%H:%M:%S')})")
+            
+            # Executar verificação
             check_presence_changes()
+            
+            # Reset contador de erros em caso de sucesso
+            consecutive_errors = 0
+            
+            # Mostrar estatísticas a cada 15 ciclos
+            if cycle_count % 15 == 0:
+                print(f"\n📊 [STATS PRESENÇA] Ciclo {cycle_count} completado")
+                print_api_stats()
+            
             time.sleep(CHECK_INTERVAL)
+            
         except Exception as e:
-            print(f"❌ Erro no monitor de presença: {e}")
-            time.sleep(CHECK_INTERVAL)
+            consecutive_errors += 1
+            print(f"❌ Erro no monitor de presença (#{consecutive_errors}): {e}")
+            
+            # Se muitos erros consecutivos, aumentar delay
+            if consecutive_errors >= max_consecutive_errors:
+                extended_sleep = CHECK_INTERVAL * 2
+                print(f"⚠️  Muitos erros consecutivos, aguardando {extended_sleep}s...")
+                time.sleep(extended_sleep)
+                consecutive_errors = 0  # Reset após delay estendido
+            else:
+                time.sleep(CHECK_INTERVAL)
 
 def check_for_new_badges(send_notifications=True):
     """Verifica se há novas badges para todos os grupos monitorados"""
