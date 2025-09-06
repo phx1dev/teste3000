@@ -14,7 +14,7 @@ MONITOR_GROUPS = [
     {
         "name": "Nouvelle",
         "webhook_url": "https://discord.com/api/webhooks/1413656858383880233/v5vplQKyAeU0Uj7x7vgzmevE46e7uqLMH_2U58rZpy8-musK_ZP01It8LY9A5dfvVaYh",
-        "user_ids": [1818113777]  # IDs dos usuários do Roblox para este grupo
+        "user_ids": [1818113777,3925323630,1559981851,3679768182,1559307226]  # IDs dos usuários do Roblox para este grupo
     },
     {
         "name": "Comunidade Civil",
@@ -523,15 +523,11 @@ def check_for_new_badges(send_notifications=True):
                     
                     # Pequeno delay para evitar rate limiting
                     time.sleep(2)
-                
-                # Atualizar badges conhecidas APENAS quando enviar notificações
-                known_badges[str(user_id)] = list(current_badge_ids)
             elif new_badge_ids and not send_notifications:
                 print(f"  📋 {len(new_badge_ids)} badge(s) existente(s) carregada(s) para o usuário {user_id}")
-                # Atualizar badges conhecidas na primeira execução (carregamento inicial)
-                known_badges[str(user_id)] = list(current_badge_ids)
-            elif not new_badge_ids:
-                print(f"  ✅ Nenhuma badge nova para o usuário {user_id}")
+            
+            # Atualizar badges conhecidas para este usuário
+            known_badges[str(user_id)] = list(current_badge_ids)
     
     # Salvar badges conhecidas
     save_known_badges(known_badges)
