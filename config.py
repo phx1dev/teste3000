@@ -14,12 +14,43 @@ AUTHORIZED_DISCORD_IDS = [
     # Para obter seu ID: Settings > Advanced > Developer Mode > Right click no usuário > Copy ID
 ]
 
+# ID do proprietário do bot (tem acesso total mesmo se AUTHORIZED_DISCORD_IDS estiver vazio)
+# Use o comando '/setup' uma vez como owner para configurar automaticamente
+BOT_OWNER_ID = None  # Substitua pelo seu ID Discord
+
 # Canal onde o bot enviará notificações automáticas de badges e presença
 # IMPORTANTE: Substitua pelo ID do canal onde quer receber notificações
 NOTIFICATION_CHANNEL_ID = None  # Exemplo: 1234567890123456789
 
 # Intervalo de checagem em segundos (recomendado: 30-60 segundos)
 CHECK_INTERVAL = 30
+
+# Configurações de Rate Limiting e Segurança
+RATE_LIMIT_CONFIG = {
+    "max_requests_per_minute": 50,  # Limite de requisições por minuto
+    "max_users_per_guild": 500,     # Limite de usuários por servidor
+    "max_groups_per_guild": 20,     # Limite de grupos por servidor
+    "backoff_multiplier": 2.0,      # Multiplicador para backoff exponencial
+    "max_backoff_time": 300         # Tempo máximo de backoff em segundos
+}
+
+# Configurações de Backup e Recuperação
+BACKUP_CONFIG = {
+    "enable_auto_backup": True,      # Habilitar backup automático
+    "backup_interval_hours": 6,      # Intervalo de backup em horas
+    "max_backup_files": 10,          # Máximo de arquivos de backup
+    "backup_on_critical_error": True # Backup em caso de erro crítico
+}
+
+# Configurações de Logging
+LOGGING_CONFIG = {
+    "log_level": "INFO",             # DEBUG, INFO, WARNING, ERROR, CRITICAL
+    "log_file": "bot.log",           # Arquivo de log
+    "max_log_size": 10 * 1024 * 1024, # 10MB máximo por arquivo
+    "backup_count": 5,               # Número de arquivos de log rotativos
+    "log_api_calls": True,           # Log das chamadas da API
+    "log_errors_to_discord": True    # Enviar erros críticos para Discord
+}
 
 # ====== COMO CONFIGURAR ======
 
@@ -80,7 +111,8 @@ COLORS = {
     "badge": 0x00FF00,     # Verde para novas badges
     "online": 0x00FF00,    # Verde para online
     "playing": 0x0099FF,   # Azul para jogando
-    "studio": 0xFF9900     # Laranja para Roblox Studio
+    "studio": 0xFF9900,    # Laranja para Roblox Studio
+    "gaming": 0x0099FF      # Azul para jogando
 }
 
 # Emojis usados nas mensagens (pode personalizar)

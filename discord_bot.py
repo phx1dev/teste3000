@@ -5,6 +5,7 @@ import os
 import threading
 from datetime import datetime
 import asyncio
+import time
 from api_utils import (
     get_user_badges_robust,
     get_users_presence_robust, 
@@ -22,8 +23,24 @@ from config import (
     NOTIFICATION_CHANNEL_ID,
     CHECK_INTERVAL,
     COLORS,
-    EMOJIS
+    EMOJIS,
+    BOT_OWNER_ID,
+    RATE_LIMIT_CONFIG,
+    BACKUP_CONFIG
 )
+from utils import (
+    logger,
+    input_validator,
+    backup_manager,
+    rate_limiter,
+    is_owner,
+    safe_json_load,
+    safe_json_save,
+    auto_backup_task,
+    task_watchdog,
+    critical_notifier
+)
+from functools import wraps
 
 # ====== CONFIGURAÇÕES DOS ARQUIVOS ======
 GUILD_DATA_FILE = "guild_data.json"  # Dados por servidor Discord
@@ -40,21 +57,18 @@ monitoring_lock = threading.Lock()
 # ====== FUNÇÕES DE ARQUIVO ======
 
 def load_guild_data():
-    """Carrega dados de todos os servidores"""
+    """Carrega dados de todos os servidores com sistema robusto"""
     global guild_data
-    if os.path.exists(GUILD_DATA_FILE):
-        try:
-            with open(GUILD_DATA_FILE, 'r') as f:
-                guild_data = json.load(f)
-        except:
-            guild_data = {}
-    else:
-        guild_data = {}
+    guild_data = safe_json_load(GUILD_DATA_FILE, {})
+    logger.info(f"Dados dos servidores carregados: {len(guild_data)} servidor(es)")
 
 def save_guild_data():
-    """Salva dados de todos os servidores"""
-    with open(GUILD_DATA_FILE, 'w') as f:
-        json.dump(guild_data, f, indent=2)
+    """Salva dados de todos os servidores com sistema robusto"""
+    success = safe_json_save(GUILD_DATA_FILE, guild_data)
+    if success:
+        logger.info("Dados dos servidores salvos com sucesso")
+    else:
+        logger.error("Falha ao salvar dados dos servidores")
 
 def get_guild_data(guild_id: int):
     """Obtém dados do servidor específico"""
@@ -81,37 +95,123 @@ def get_guild_config(guild_id: int):
 
 def load_known_badges():
     """Carrega as badges já conhecidas do arquivo"""
-    if os.path.exists(BADGES_FILE):
-        try:
-            with open(BADGES_FILE, 'r') as f:
-                return json.load(f)
-        except:
-            return {}
-    return {}
+    return safe_json_load(BADGES_FILE, {})
 
 def save_known_badges(badges):
     """Salva as badges conhecidas no arquivo"""
-    with open(BADGES_FILE, 'w') as f:
-        json.dump(badges, f, indent=2)
+    safe_json_save(BADGES_FILE, badges)
 
 def load_last_presence():
     """Carrega o último status de presença dos usuários"""
-    if os.path.exists(PRESENCE_FILE):
-        try:
-            with open(PRESENCE_FILE, 'r') as f:
-                return json.load(f)
-        except:
-            return {}
-    return {}
+    return safe_json_load(PRESENCE_FILE, {})
 
 def save_last_presence(presence_data):
     """Salva o último status de presença dos usuários"""
-    with open(PRESENCE_FILE, 'w') as f:
-        json.dump(presence_data, f, indent=2)
+    safe_json_save(PRESENCE_FILE, presence_data)
 
 def is_authorized(user_id: int) -> bool:
     """Verifica se o usuário tem permissão para usar os comandos"""
+    # Owner sempre tem permissão
+    if is_owner(user_id):
+        return True
+    
+    # Se a lista de autorizados está vazia, apenas o owner pode usar
+    if not AUTHORIZED_DISCORD_IDS:
+        return False
+        
     return user_id in AUTHORIZED_DISCORD_IDS
+
+# ====== DECORADOR UNIVERSAL DE SEGURANÇA ======
+
+def secure_command(require_owner: bool = False):
+    """Decorador universal para segurança de comandos"""
+    def decorator(func):
+        @wraps(func)
+        async def wrapper(interaction: discord.Interaction, *args, **kwargs):
+            user_id = interaction.user.id
+            
+            # Verificar se precisa ser owner
+            if require_owner and not is_owner(user_id):
+                await interaction.response.send_message(
+                    "❌ Este comando só pode ser usado pelo proprietário do bot!", ephemeral=True
+                )
+                return
+            
+            # Verificar autorização geral
+            if not require_owner and not is_authorized(user_id):
+                if not AUTHORIZED_DISCORD_IDS and not BOT_OWNER_ID:
+                    await interaction.response.send_message(
+                        "❌ Bot não configurado! O proprietário precisa definir BOT_OWNER_ID no config.py",
+                        ephemeral=True
+                    )
+                else:
+                    await interaction.response.send_message(
+                        "❌ Você não tem permissão para usar este comando!", ephemeral=True
+                    )
+                return
+            
+            # Verificar rate limiting (exceto para owner)
+            if not is_owner(user_id):
+                can_proceed, limit_message = rate_limiter.can_make_request(user_id)
+                if not can_proceed:
+                    await interaction.response.send_message(f"⚠️ {limit_message}", ephemeral=True)
+                    return
+            
+            # Verificar se está em um servidor (exceto comandos de owner)
+            if not require_owner and not interaction.guild:
+                await interaction.response.send_message(
+                    "❌ Este comando só pode ser usado em servidores Discord!", ephemeral=True
+                )
+                return
+            
+            # Executar comando original
+            try:
+                return await func(interaction, *args, **kwargs)
+            except Exception as e:
+                logger.error(f"Erro no comando {func.__name__}", e, {
+                    "user": user_id,
+                    "guild": interaction.guild.id if interaction.guild else None
+                })
+                
+                # Notificar erro crítico se necessário
+                await critical_notifier.notify_critical_error(e, {
+                    "command": func.__name__,
+                    "user": user_id,
+                    "guild": interaction.guild.id if interaction.guild else None
+                })
+                
+                if interaction.response.is_done():
+                    await interaction.followup.send("❌ Erro interno no comando. Tente novamente.", ephemeral=True)
+                else:
+                    await interaction.response.send_message("❌ Erro interno no comando. Tente novamente.", ephemeral=True)
+                    
+        return wrapper
+    return decorator
+
+async def check_permissions_and_limits(interaction: discord.Interaction):
+    """Verifica permissões e limites de rate limiting"""
+    user_id = interaction.user.id
+    
+    # Verificar autorização
+    if not is_authorized(user_id):
+        if not AUTHORIZED_DISCORD_IDS and not BOT_OWNER_ID:
+            return False, (
+                "❌ Bot não configurado! O proprietário precisa definir BOT_OWNER_ID no config.py "
+                "ou usar o comando /setup (requer reinicialização do bot)."
+            )
+        return False, "❌ Você não tem permissão para usar este comando!"
+    
+    # Verificar rate limiting (exceto para owner)
+    if not is_owner(user_id):
+        can_proceed, limit_message = rate_limiter.can_make_request(user_id)
+        if not can_proceed:
+            return False, f"⚠️ {limit_message}"
+    
+    # Verificar se está em um servidor
+    if not interaction.guild:
+        return False, "❌ Este comando só pode ser usado em servidores Discord!"
+    
+    return True, None
 
 def presence_type_to_text(presence_type: int) -> str:
     """Converte código de presença para texto"""
@@ -135,60 +235,148 @@ def get_notification_channel(guild_id: int):
 
 # ====== EVENTOS DO BOT ======
 
+# ====== HANDLERS GLOBAIS DE ERRO ======
+
+@bot.event
+async def on_app_command_error(interaction: discord.Interaction, error: discord.app_commands.AppCommandError):
+    """Handler global de erro para slash commands"""
+    try:
+        logger.error(f"Erro em comando slash: {interaction.command.name if interaction.command else 'Unknown'}", error, {
+            "user": interaction.user.id,
+            "guild": interaction.guild.id if interaction.guild else None
+        })
+        
+        # Notificar erro crítico se necessário
+        await critical_notifier.notify_critical_error(error, {
+            "command": interaction.command.name if interaction.command else "Unknown",
+            "user": interaction.user.id,
+            "guild": interaction.guild.id if interaction.guild else None
+        })
+        
+        # Responder ao usuário
+        error_msg = "❌ Erro interno no comando. Tente novamente ou contate o suporte."
+        
+        if isinstance(error, discord.app_commands.CommandOnCooldown):
+            error_msg = f"⏰ Comando em cooldown. Tente novamente em {error.retry_after:.1f}s."
+        elif isinstance(error, discord.app_commands.MissingPermissions):
+            error_msg = "❌ Você não tem permissões suficientes para usar este comando."
+        
+        if interaction.response.is_done():
+            await interaction.followup.send(error_msg, ephemeral=True)
+        else:
+            await interaction.response.send_message(error_msg, ephemeral=True)
+            
+    except Exception as e:
+        logger.critical("Erro crítico no handler de erro", e)
+
+@bot.event
+async def on_error(event: str, *args, **kwargs):
+    """Handler global de erro para eventos"""
+    import sys
+    error = sys.exc_info()[1]
+    
+    logger.critical(f"Erro no evento {event}", error, {
+        "args": str(args)[:1000],
+        "kwargs": str(kwargs)[:1000]
+    })
+    
+    # Notificar erro crítico
+    await critical_notifier.notify_critical_error(error, {
+        "event": event,
+        "args": str(args)[:500]
+    })
+
 @bot.event
 async def on_ready():
     """Executado quando o bot está online"""
     print(f'{bot.user} está online!')
     print(f'IDs autorizados: {AUTHORIZED_DISCORD_IDS}')
     
+    # Configurar sistema de notificações críticas
+    critical_notifier.set_bot(bot)
+    
     # Carregar dados salvos
     load_guild_data()
     
-    # Iniciar monitoramento automático 
-    if not monitoring_badge_task.is_running():
-        monitoring_badge_task.start()
-    if not monitoring_presence_task.is_running():
-        monitoring_presence_task.start()
-    if not monitoring_groups_task.is_running():
-        monitoring_groups_task.start()
+    # Registrar tasks no watchdog
+    task_watchdog.register_task("badges", monitoring_badge_task)
+    task_watchdog.register_task("presence", monitoring_presence_task) 
+    task_watchdog.register_task("groups", monitoring_groups_task)
+    
+    # Iniciar tasks de monitoramento com watchdog
+    try:
+        if not monitoring_badge_task.is_running():
+            monitoring_badge_task.start()
+            logger.info("Task de monitoramento de badges iniciada")
+            
+        if not monitoring_presence_task.is_running():
+            monitoring_presence_task.start()
+            logger.info("Task de monitoramento de presença iniciada")
+            
+        if not monitoring_groups_task.is_running():
+            monitoring_groups_task.start()
+            logger.info("Task de monitoramento de grupos iniciada")
         
-    print("✅ Monitoramento automático iniciado para todos os servidores!")
+        # Registrar tasks no watchdog
+        task_watchdog.monitored_tasks["badges"]["task"] = monitoring_badge_task
+        task_watchdog.monitored_tasks["presence"]["task"] = monitoring_presence_task
+        task_watchdog.monitored_tasks["groups"]["task"] = monitoring_groups_task
+        
+        # Iniciar watchdog
+        asyncio.create_task(task_watchdog.monitor_tasks())
+        logger.info("Watchdog de tasks iniciado")
+            
+        # Iniciar task de backup automático
+        asyncio.create_task(auto_backup_task())
+        logger.info("Task de backup automático iniciada")
+        
+        logger.info("✅ Sistema de monitoramento bulletproof iniciado para todos os servidores!")
+        
+        # Criar backup inicial
+        backup_success = backup_manager.create_backup([
+            "guild_data.json", "known_badges.json", "last_presence.json"
+        ], "startup")
+        if backup_success:
+            logger.info("Backup inicial criado com sucesso")
+            
+    except Exception as e:
+        logger.critical("Erro crítico ao iniciar sistema de monitoramento", e)
+        await critical_notifier.notify_critical_error(e, {"phase": "startup"})
     
     # Sincronizar slash commands
     try:
         synced = await bot.tree.sync()
-        print(f"✅ {len(synced)} slash commands sincronizados")
+        logger.info(f"✅ {len(synced)} slash commands sincronizados")
     except Exception as e:
-        print(f"❌ Erro ao sincronizar commands: {e}")
+        logger.error("Erro ao sincronizar commands", e)
 
 # ====== COMANDOS SLASH ======
 
 @bot.tree.command(name="monitorarmembros", description="Adiciona um usuário à lista de monitoramento individual deste servidor")
 @discord.app_commands.describe(username="Nome do usuário do Roblox para monitorar")
+@secure_command()
 async def monitor_user(interaction: discord.Interaction, username: str):
     """Comando /monitorarmembros - Adiciona usuário à lista de monitoramento individual do servidor"""
     
-    # Verificar autorização
-    if not is_authorized(interaction.user.id):
-        await interaction.response.send_message(
-            "❌ Você não tem permissão para usar este comando!", ephemeral=True
-        )
-        return
-        
-    # Verificar se está em um servidor
-    if not interaction.guild:
-        await interaction.response.send_message(
-            "❌ Este comando só pode ser usado em servidores Discord!", ephemeral=True
-        )
+    # Validar entrada
+    valid_username, validation_error = input_validator.validate_username(username)
+    if not valid_username:
+        await interaction.response.send_message(f"❌ {validation_error}", ephemeral=True)
         return
     
     await interaction.response.defer()
     
     try:
-        # Obter informações do usuário usando execução assíncrona
-        user_info, success, error = await asyncio.to_thread(get_user_info_by_username, username)
-        if not success or not user_info:
-            await interaction.followup.send(f"❌ Usuário '{username}' não encontrado no Roblox: {error}")
+        # Obter informações do usuário com tratamento robusto de erros
+        try:
+            user_info, success, error = await asyncio.to_thread(get_user_info_by_username, username)
+            if not success or not user_info:
+                logger.warning(f"Usuário não encontrado: {username}", {"error": error, "guild": interaction.guild.id})
+                await interaction.followup.send(f"❌ Usuário '{username}' não encontrado no Roblox: {error}")
+                return
+        except Exception as e:
+            logger.error(f"Erro ao buscar usuário: {username}", e, {"guild": interaction.guild.id})
+            await interaction.followup.send("❌ Erro interno ao buscar usuário. Tente novamente.")
             return
         
         user_id = user_info.get('id')
@@ -196,8 +384,17 @@ async def monitor_user(interaction: discord.Interaction, username: str):
             await interaction.followup.send(f"❌ Não foi possível obter ID do usuário '{username}'")
             return
         
-        # Verificar se já está sendo monitorado no servidor
+        # Verificar limites do servidor
         guild_users = get_tracked_users(interaction.guild.id)
+        max_users = RATE_LIMIT_CONFIG["max_users_per_guild"]
+        
+        if len(guild_users) >= max_users and not is_owner(interaction.user.id):
+            await interaction.followup.send(
+                f"⚠️ Limite máximo de usuários atingido para este servidor: {max_users}"
+            )
+            return
+            
+        # Verificar se já está sendo monitorado no servidor
         if str(user_id) in guild_users:
             await interaction.followup.send(
                 f"⚠️ O usuário **{user_info.get('name')}** já está sendo monitorado neste servidor!"
@@ -210,7 +407,20 @@ async def monitor_user(interaction: discord.Interaction, username: str):
             "added_by": interaction.user.id,
             "added_at": datetime.now().isoformat()
         }
-        save_guild_data()
+        
+        if save_guild_data():
+            logger.info(f"Usuário adicionado: {username} (ID: {user_id})", {
+                "guild": interaction.guild.id,
+                "added_by": interaction.user.id,
+                "total_users": len(guild_users)
+            })
+        else:
+            logger.error("Falha ao salvar dados após adicionar usuário", None, {
+                "username": username,
+                "guild": interaction.guild.id
+            })
+            await interaction.followup.send("❌ Erro ao salvar dados. Usuário pode não ter sido adicionado corretamente.")
+            return
         
         embed = discord.Embed(
             title="✅ Usuário Adicionado ao Monitoramento",
@@ -227,21 +437,20 @@ async def monitor_user(interaction: discord.Interaction, username: str):
 
 @bot.tree.command(name="removermembro", description="Remove um usuário da lista de monitoramento individual deste servidor")
 @discord.app_commands.describe(username="Nome do usuário do Roblox para remover")
+@secure_command()
 async def remove_user(interaction: discord.Interaction, username: str):
     """Comando /removermembro - Remove usuário da lista de monitoramento individual do servidor"""
     
-    # Verificar autorização
-    if not is_authorized(interaction.user.id):
-        await interaction.response.send_message(
-            "❌ Você não tem permissão para usar este comando!", ephemeral=True
-        )
+    # Verificar permissões e limites
+    can_proceed, error_message = await check_permissions_and_limits(interaction)
+    if not can_proceed:
+        await interaction.response.send_message(error_message, ephemeral=True)
         return
         
-    # Verificar se está em um servidor
-    if not interaction.guild:
-        await interaction.response.send_message(
-            "❌ Este comando só pode ser usado em servidores Discord!", ephemeral=True
-        )
+    # Validar entrada
+    valid_username, validation_error = input_validator.validate_username(username)
+    if not valid_username:
+        await interaction.response.send_message(f"❌ {validation_error}", ephemeral=True)
         return
     
     await interaction.response.defer()
@@ -279,22 +488,67 @@ async def remove_user(interaction: discord.Interaction, username: str):
     except Exception as e:
         await interaction.followup.send(f"❌ Erro: {e}")
 
+@bot.tree.command(name="setup", description="Configuração inicial do bot (somente proprietário)")
+@secure_command(require_owner=True)
+async def setup_bot(interaction: discord.Interaction):
+    """Comando /setup - Configuração inicial para proprietário"""
+    
+    user_id = interaction.user.id
+    
+    # Verificar se é proprietário (deve funcionar mesmo sem configuração)
+    if BOT_OWNER_ID and user_id != BOT_OWNER_ID:
+        await interaction.response.send_message(
+            "❌ Este comando só pode ser usado pelo proprietário do bot!", ephemeral=True
+        )
+        return
+    
+    # Se não há owner configurado, permitir que o primeiro usuário se torne owner
+    if not BOT_OWNER_ID:
+        embed = discord.Embed(
+            title="🔧 Configuração Inicial do Bot",
+            color=COLORS["warning"],
+            description=(
+                f"**Usuário {interaction.user.mention} será definido como proprietário.**\n\n"
+                "⚠️ Para completar a configuração:\n"
+                "1. Edite `config.py` e defina `BOT_OWNER_ID = {user_id}`\n"
+                "2. Reinicie o bot\n"
+                "3. Use `/setchannel` para configurar notificações\n"
+                "4. Use `/monitorarmembros` para adicionar usuários\n\n"
+                "📋 **Status atual:**\n"
+                f"• Proprietário: Não configurado\n"
+                f"• IDs Autorizados: {len(AUTHORIZED_DISCORD_IDS)} usuário(s)\n"
+                f"• Servidores ativos: {len(guild_data)}"
+            ).format(user_id=user_id)
+        )
+        await interaction.response.send_message(embed=embed, ephemeral=True)
+        return
+    
+    # Mostrar status do sistema
+    total_users = sum(len(guild_info.get("tracked_users", {})) for guild_info in guild_data.values())
+    total_groups = sum(len(guild_info.get("tracked_groups", {})) for guild_info in guild_data.values())
+    
+    embed = discord.Embed(
+        title="🔧 Status do Sistema",
+        color=COLORS["info"]
+    )
+    embed.add_field(name="👑 Proprietário", value=f"<@{BOT_OWNER_ID}>", inline=True)
+    embed.add_field(name="🔑 IDs Autorizados", value=str(len(AUTHORIZED_DISCORD_IDS)), inline=True)
+    embed.add_field(name="🏠 Servidores", value=str(len(guild_data)), inline=True)
+    embed.add_field(name="👥 Total Usuários", value=str(total_users), inline=True)
+    embed.add_field(name="📊 Total Grupos", value=str(total_groups), inline=True)
+    embed.add_field(name="💾 Backups", value="✅ Ativo" if BACKUP_CONFIG["enable_auto_backup"] else "❌ Inativo", inline=True)
+    
+    await interaction.response.send_message(embed=embed, ephemeral=True)
+
 @bot.tree.command(name="list", description="Lista todos os usuários monitorados neste servidor")
+@secure_command()
 async def list_tracked(interaction: discord.Interaction):
     """Comando /list - Lista usuários monitorados no servidor"""
     
-    # Verificar autorização
-    if not is_authorized(interaction.user.id):
-        await interaction.response.send_message(
-            "❌ Você não tem permissão para usar este comando!", ephemeral=True
-        )
-        return
-        
-    # Verificar se está em um servidor
-    if not interaction.guild:
-        await interaction.response.send_message(
-            "❌ Este comando só pode ser usado em servidores Discord!", ephemeral=True
-        )
+    # Verificar permissões e limites
+    can_proceed, error_message = await check_permissions_and_limits(interaction)
+    if not can_proceed:
+        await interaction.response.send_message(error_message, ephemeral=True)
         return
     
     guild_users = get_tracked_users(interaction.guild.id)
@@ -323,21 +577,14 @@ async def list_tracked(interaction: discord.Interaction):
 
 @bot.tree.command(name="setchannel", description="Define o canal onde o bot enviará notificações")
 @discord.app_commands.describe(channel="Canal onde as notificações serão enviadas")
+@secure_command()
 async def set_channel(interaction: discord.Interaction, channel: discord.TextChannel):
     """Comando /setchannel - Define canal de notificações para o servidor"""
     
-    # Verificar autorização
-    if not is_authorized(interaction.user.id):
-        await interaction.response.send_message(
-            "❌ Você não tem permissão para usar este comando!", ephemeral=True
-        )
-        return
-        
-    # Verificar se está em um servidor
-    if not interaction.guild:
-        await interaction.response.send_message(
-            "❌ Este comando só pode ser usado em servidores Discord!", ephemeral=True
-        )
+    # Verificar permissões e limites
+    can_proceed, error_message = await check_permissions_and_limits(interaction)
+    if not can_proceed:
+        await interaction.response.send_message(error_message, ephemeral=True)
         return
     
     try:
@@ -368,28 +615,35 @@ async def set_channel(interaction: discord.Interaction, channel: discord.TextCha
 
 @bot.tree.command(name="adicionargrupo", description="Adiciona um grupo do Roblox para monitorar mudanças de membros")
 @discord.app_commands.describe(group_id="ID do grupo do Roblox para monitorar")
+@secure_command()
 async def add_group(interaction: discord.Interaction, group_id: int):
     """Comando /adicionargrupo - Adiciona grupo ao monitoramento de membros"""
     
-    # Verificar autorização
-    if not is_authorized(interaction.user.id):
-        await interaction.response.send_message(
-            "❌ Você não tem permissão para usar este comando!", ephemeral=True
-        )
+    # Verificar permissões e limites
+    can_proceed, error_message = await check_permissions_and_limits(interaction)
+    if not can_proceed:
+        await interaction.response.send_message(error_message, ephemeral=True)
         return
         
-    # Verificar se está em um servidor
-    if not interaction.guild:
-        await interaction.response.send_message(
-            "❌ Este comando só pode ser usado em servidores Discord!", ephemeral=True
-        )
+    # Validar ID do grupo
+    valid_id, validation_error = input_validator.validate_roblox_id(group_id)
+    if not valid_id:
+        await interaction.response.send_message(f"❌ {validation_error}", ephemeral=True)
         return
     
     await interaction.response.defer()
     
     try:
         guild_groups = get_tracked_groups(interaction.guild.id)
+        max_groups = RATE_LIMIT_CONFIG["max_groups_per_guild"]
         
+        # Verificar limites do servidor
+        if len(guild_groups) >= max_groups and not is_owner(interaction.user.id):
+            await interaction.followup.send(
+                f"⚠️ Limite máximo de grupos atingido para este servidor: {max_groups}"
+            )
+            return
+            
         # Verificar se já está sendo monitorado
         if str(group_id) in guild_groups:
             await interaction.followup.send(
@@ -397,10 +651,16 @@ async def add_group(interaction: discord.Interaction, group_id: int):
             )
             return
         
-        # Obter informações do grupo
-        group_info, success, error = await asyncio.to_thread(get_group_info_robust, group_id)
-        if not success:
-            await interaction.followup.send(f"❌ Erro ao obter informações do grupo: {error}")
+        # Obter informações do grupo com tratamento robusto
+        try:
+            group_info, success, error = await asyncio.to_thread(get_group_info_robust, group_id)
+            if not success:
+                logger.warning(f"Grupo não encontrado: {group_id}", {"error": error, "guild": interaction.guild.id})
+                await interaction.followup.send(f"❌ Erro ao obter informações do grupo: {error}")
+                return
+        except Exception as e:
+            logger.error(f"Erro ao buscar grupo: {group_id}", e, {"guild": interaction.guild.id})
+            await interaction.followup.send("❌ Erro interno ao buscar grupo. Tente novamente.")
             return
         
         # Adicionar à lista de grupos monitorados
@@ -410,7 +670,18 @@ async def add_group(interaction: discord.Interaction, group_id: int):
             "added_by": interaction.user.id,
             "added_at": datetime.now().isoformat()
         }
-        save_guild_data()
+        
+        if save_guild_data():
+            logger.info(f"Grupo adicionado: {group_id}", {
+                "guild": interaction.guild.id,
+                "added_by": interaction.user.id,
+                "total_groups": len(guild_groups)
+            })
+        else:
+            logger.error("Falha ao salvar dados após adicionar grupo", None, {
+                "group_id": group_id,
+                "guild": interaction.guild.id
+            })
         
         embed = discord.Embed(
             title="✅ Grupo Adicionado ao Monitoramento",
@@ -428,6 +699,7 @@ async def add_group(interaction: discord.Interaction, group_id: int):
 
 @bot.tree.command(name="adicionarmembrosgrupo", description="Adiciona membros de um grupo à lista de monitoramento individual")
 @discord.app_commands.describe(group_id="ID do grupo do Roblox", limit="Limite de membros (padrão: 100, máximo: 500)")
+@secure_command()
 async def add_group_members_to_monitoring(interaction: discord.Interaction, group_id: int, limit: int = 100):
     """Comando /adicionarmembrosgrupo - Adiciona membros do grupo à lista de usuários monitorados individualmente"""
     
@@ -509,22 +781,65 @@ async def add_group_members_to_monitoring(interaction: discord.Interaction, grou
     except Exception as e:
         await interaction.followup.send(f"❌ Erro: {e}")
 
+@bot.tree.command(name="emergencia", description="Comando de emergência para proprietário (força backup e diagnóstico)")
+@secure_command(require_owner=True)
+async def emergency_command(interaction: discord.Interaction):
+    """Comando /emergencia - Sistema de recuperação de emergência"""
+    
+    # Apenas proprietário pode usar
+    if not is_owner(interaction.user.id):
+        await interaction.response.send_message(
+            "❌ Este comando só pode ser usado pelo proprietário do bot!", ephemeral=True
+        )
+        return
+    
+    await interaction.response.defer(ephemeral=True)
+    
+    try:
+        # Backup forçado
+        backup_success = backup_manager.create_backup([
+            "guild_data.json", "known_badges.json", "last_presence.json", "bot.log"
+        ], "emergency")
+        
+        # Limpar rate limits de todos os usuários
+        rate_limiter.requests.clear()
+        rate_limiter.blocked_users.clear()
+        
+        # Diagnóstico do sistema
+        total_users = sum(len(guild_info.get("tracked_users", {})) for guild_info in guild_data.values())
+        total_groups = sum(len(guild_info.get("tracked_groups", {})) for guild_info in guild_data.values())
+        
+        embed = discord.Embed(
+            title="🚨 Recuperação de Emergência",
+            color=COLORS["error"]
+        )
+        embed.add_field(name="💾 Backup Forçado", value="✅ Sucesso" if backup_success else "❌ Falha", inline=True)
+        embed.add_field(name="🔄 Rate Limits", value="✅ Resetados", inline=True)
+        embed.add_field(name="🏠 Servidores", value=str(len(guild_data)), inline=True)
+        embed.add_field(name="👥 Total Usuários", value=str(total_users), inline=True)
+        embed.add_field(name="📊 Total Grupos", value=str(total_groups), inline=True)
+        embed.add_field(name="📋 Tasks Ativas", value=f"Badges: {monitoring_badge_task.is_running()}\nPresença: {monitoring_presence_task.is_running()}\nGrupos: {monitoring_groups_task.is_running()}", inline=False)
+        
+        logger.critical("Comando de emergência executado", None, {
+            "user": interaction.user.id,
+            "guild": interaction.guild.id if interaction.guild else None
+        })
+        
+        await interaction.followup.send(embed=embed, ephemeral=True)
+        
+    except Exception as e:
+        logger.critical("Erro no comando de emergência", e)
+        await interaction.followup.send("❌ Erro crítico no sistema de emergência!", ephemeral=True)
+
 @bot.tree.command(name="grupos", description="Lista todos os grupos monitorados neste servidor")
+@secure_command()
 async def list_groups(interaction: discord.Interaction):
     """Comando /grupos - Lista grupos monitorados no servidor"""
     
-    # Verificar autorização
-    if not is_authorized(interaction.user.id):
-        await interaction.response.send_message(
-            "❌ Você não tem permissão para usar este comando!", ephemeral=True
-        )
-        return
-        
-    # Verificar se está em um servidor
-    if not interaction.guild:
-        await interaction.response.send_message(
-            "❌ Este comando só pode ser usado em servidores Discord!", ephemeral=True
-        )
+    # Verificar permissões e limites
+    can_proceed, error_message = await check_permissions_and_limits(interaction)
+    if not can_proceed:
+        await interaction.response.send_message(error_message, ephemeral=True)
         return
     
     guild_groups = get_tracked_groups(interaction.guild.id)
@@ -575,9 +890,13 @@ async def monitoring_badge_task():
                     try:
                         roblox_id = int(roblox_id_str)
                         
-                        # Obter badges atuais do usuário
-                        current_badges, success, _ = await asyncio.to_thread(get_user_badges_robust, roblox_id)
-                        if not success or not current_badges:
+                        # Obter badges atuais do usuário com tratamento robusto
+                        try:
+                            current_badges, success, _ = await asyncio.to_thread(get_user_badges_robust, roblox_id)
+                            if not success or not current_badges:
+                                continue
+                        except Exception as e:
+                            logger.error(f"Erro ao obter badges do usuário {roblox_id}", e, {"guild": guild_id})
                             continue
                         
                         # Comparar com badges conhecidas
@@ -586,9 +905,13 @@ async def monitoring_badge_task():
                         new_badge_ids = current_badge_ids - user_known_badges
                         
                         if new_badge_ids:
-                            # Obter info do usuário
-                            user_info, _, _ = await asyncio.to_thread(get_user_info_robust, int(roblox_id))
-                            avatar_url, _, _ = await asyncio.to_thread(get_user_avatar_robust, int(roblox_id))
+                            try:
+                                # Obter info do usuário com tratamento seguro
+                                user_info, _, _ = await asyncio.to_thread(get_user_info_robust, int(roblox_id))
+                                avatar_url, _, _ = await asyncio.to_thread(get_user_avatar_robust, int(roblox_id))
+                            except Exception as e:
+                                logger.warning(f"Erro ao obter info do usuário {roblox_id}", e)
+                                user_info, avatar_url = None, None
                             
                             for badge_id in new_badge_ids:
                                 badge_info, success, _ = await asyncio.to_thread(get_badge_info_robust, badge_id)
@@ -645,9 +968,14 @@ async def monitoring_presence_task():
             if not all_user_ids:
                 return
             
-            # Obter presença de todos os usuários de uma vez
-            presence_data, success, _ = await asyncio.to_thread(get_users_presence_robust, list(all_user_ids))
-            if not success or not presence_data:
+            # Obter presença de todos os usuários com tratamento robusto
+            try:
+                presence_data, success, _ = await asyncio.to_thread(get_users_presence_robust, list(all_user_ids))
+                if not success or not presence_data:
+                    logger.warning("Falha ao obter dados de presença")
+                    return
+            except Exception as e:
+                logger.error("Erro crítico no monitoramento de presença", e)
                 return
             
             # Processar mudanças de presença
@@ -734,9 +1062,14 @@ async def monitoring_groups_task():
                         group_id = int(group_id_str)
                         old_member_count = group_data.get('member_count', 0)
                         
-                        # Obter informações atuais do grupo
-                        group_info, success, error = await asyncio.to_thread(get_group_info_robust, group_id)
-                        if not success:
+                        # Obter informações atuais do grupo com tratamento robusto
+                        try:
+                            group_info, success, error = await asyncio.to_thread(get_group_info_robust, group_id)
+                            if not success:
+                                logger.warning(f"Erro ao obter info do grupo {group_id}", None, {"error": error})
+                                continue
+                        except Exception as e:
+                            logger.error(f"Erro crítico ao monitorar grupo {group_id}", e, {"guild": guild_id})
                             continue
                         
                         current_member_count = group_info.get('memberCount', 0)
