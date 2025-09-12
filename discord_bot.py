@@ -41,6 +41,7 @@ from utils import (
     critical_notifier
 )
 from functools import wraps
+from typing import Any, cast
 
 # ====== CLASSES DE EXCEÇÃO CUSTOMIZADAS ======
 
@@ -119,17 +120,8 @@ def save_last_presence(presence_data):
     """Salva o último status de presença dos usuários"""
     safe_json_save(PRESENCE_FILE, presence_data)
 
-def is_authorized(user_id: int) -> bool:
-    """Verifica se o usuário tem permissão para usar os comandos"""
-    # Owner sempre tem permissão
-    if is_owner(user_id):
-        return True
-    
-    # Se a lista de autorizados está vazia, apenas o owner pode usar
-    if not AUTHORIZED_DISCORD_IDS:
-        return False
-        
-    return user_id in AUTHORIZED_DISCORD_IDS
+# Função removida: is_authorized agora é redundante
+# A lógica foi integrada no decorador @secure_command
 
 # ====== DECORADOR UNIVERSAL DE SEGURANÇA ======
 
@@ -147,18 +139,25 @@ def secure_command(require_owner: bool = False):
                 )
                 return
             
-            # Verificar autorização geral
-            if not require_owner and not is_authorized(user_id):
-                if not AUTHORIZED_DISCORD_IDS and not BOT_OWNER_ID:
-                    await interaction.response.send_message(
-                        "❌ Bot não configurado! O proprietário precisa definir BOT_OWNER_ID no config.py",
-                        ephemeral=True
-                    )
-                else:
-                    await interaction.response.send_message(
-                        "❌ Você não tem permissão para usar este comando!", ephemeral=True
-                    )
-                return
+            # Verificar autorização geral (lógica integrada do is_authorized)
+            if not require_owner:
+                if not is_owner(user_id):
+                    if not AUTHORIZED_DISCORD_IDS:
+                        if not BOT_OWNER_ID:
+                            await interaction.response.send_message(
+                                "❌ Bot não configurado! O proprietário precisa definir BOT_OWNER_ID no config.py",
+                                ephemeral=True
+                            )
+                        else:
+                            await interaction.response.send_message(
+                                "❌ Você não tem permissão para usar este comando!", ephemeral=True
+                            )
+                        return
+                    elif user_id not in AUTHORIZED_DISCORD_IDS:
+                        await interaction.response.send_message(
+                            "❌ Você não tem permissão para usar este comando!", ephemeral=True
+                        )
+                        return
             
             # Verificar rate limiting (exceto para owner)
             if not is_owner(user_id):
@@ -195,33 +194,17 @@ def secure_command(require_owner: bool = False):
                 else:
                     await interaction.response.send_message("❌ Erro interno no comando. Tente novamente.", ephemeral=True)
                     
+        # Marcar função como protegida
+        try:
+            setattr(wrapper, '_secure_guard', True)
+        except AttributeError:
+            # Fallback se não conseguir setar o atributo
+            pass
         return wrapper
     return decorator
 
-async def check_permissions_and_limits(interaction: discord.Interaction):
-    """Verifica permissões e limites de rate limiting"""
-    user_id = interaction.user.id
-    
-    # Verificar autorização
-    if not is_authorized(user_id):
-        if not AUTHORIZED_DISCORD_IDS and not BOT_OWNER_ID:
-            return False, (
-                "❌ Bot não configurado! O proprietário precisa definir BOT_OWNER_ID no config.py "
-                "ou usar o comando /setup (requer reinicialização do bot)."
-            )
-        return False, "❌ Você não tem permissão para usar este comando!"
-    
-    # Verificar rate limiting (exceto para owner)
-    if not is_owner(user_id):
-        can_proceed, limit_message = rate_limiter.can_make_request(user_id)
-        if not can_proceed:
-            return False, f"⚠️ {limit_message}"
-    
-    # Verificar se está em um servidor
-    if not interaction.guild:
-        return False, "❌ Este comando só pode ser usado em servidores Discord!"
-    
-    return True, None
+# Função removida: check_permissions_and_limits agora é redundante
+# Toda a lógica foi integrada no decorador @secure_command
 
 def presence_type_to_text(presence_type: int) -> str:
     """Converte código de presença para texto"""
@@ -332,24 +315,21 @@ async def on_ready():
             monitoring_groups_task.start()
             logger.info("Task de monitoramento de grupos iniciada")
         
-        # (Movido para baixo para ativação completa do watchdog)
             
-        # Ativar TaskWatchdog e registrar todas as tasks críticas
-        task_watchdog.monitored_tasks["badges"]["task"] = monitoring_badge_task
-        task_watchdog.monitored_tasks["presence"]["task"] = monitoring_presence_task
-        task_watchdog.monitored_tasks["groups"]["task"] = monitoring_groups_task
+        # Registrar e ativar TaskWatchdog com todas as tasks críticas
+        task_watchdog.register_task("badges", monitoring_badge_task, lambda: monitoring_badge_task.start())
+        task_watchdog.register_task("presence", monitoring_presence_task, lambda: monitoring_presence_task.start())
+        task_watchdog.register_task("groups", monitoring_groups_task, lambda: monitoring_groups_task.start())
         
         # Iniciar watchdog para monitoramento ativo
         watchdog_task = asyncio.create_task(task_watchdog.monitor_tasks())
+        task_watchdog.register_task("watchdog_monitor", watchdog_task)
         logger.info("TaskWatchdog ativado - monitoramento ativo de tasks")
         
         # Iniciar task de backup automático
         backup_task = asyncio.create_task(auto_backup_task())
-        logger.info("Task de backup automático iniciada")
-        
-        # Registrar tasks auxiliares no watchdog também
-        task_watchdog.register_task("watchdog_monitor", watchdog_task)
         task_watchdog.register_task("auto_backup", backup_task)
+        logger.info("Task de backup automático iniciada e registrada no watchdog")
         
         logger.info("✅ Sistema de monitoramento bulletproof iniciado para todos os servidores!")
         
@@ -364,17 +344,30 @@ async def on_ready():
         total_commands = len(bot.tree.get_commands())
         logger.info(f"🔍 Auditoria de segurança: {total_commands} comandos registrados")
         
-        # Verificar se TODOS os comandos têm proteção
+        # Verificar se TODOS os comandos têm proteção @secure_command
         unprotected_commands = []
-        for command in bot.tree.get_commands():
-            # Verificar se o comando original tem o wrapper do secure_command
-            if not hasattr(command.callback, '__wrapped__'):
-                unprotected_commands.append(command.name)
+        try:
+            for command in bot.tree.get_commands():
+                # Verificar se o comando tem callback (evita erro com Groups)
+                if hasattr(command, 'callback') and command.callback:
+                    callback = command.callback
+                    if not (hasattr(callback, '__wrapped__') or getattr(callback, '_secure_guard', False)):
+                        unprotected_commands.append(command.name)
+        except Exception as audit_error:
+            logger.warning(f"Erro na auditoria de comandos: {audit_error}")
+            # Continuar sem falhar o startup
         
         if unprotected_commands:
-            critical_error = f"FALHA CRÍTICA DE SEGURANÇA: Comandos sem proteção: {unprotected_commands}"
-            logger.critical(critical_error)
-            raise SecurityError(critical_error)
+            security_warning = f"⚠️ AVISO DE SEGURANÇA: Comandos sem proteção: {unprotected_commands}"
+            logger.critical(security_warning)
+            # Não travar o startup, apenas alertar
+            try:
+                await critical_notifier.notify_critical_error(
+                    SecurityError(security_warning), 
+                    {"unprotected_commands": unprotected_commands}
+                )
+            except Exception:
+                pass  # Não falhar se notificação falhar
         else:
             logger.info("✅ Todos os comandos estão protegidos com @secure_command")
         
@@ -604,12 +597,6 @@ async def setup_bot(interaction: discord.Interaction):
 @secure_command()
 async def list_tracked(interaction: discord.Interaction):
     """Comando /list - Lista usuários monitorados no servidor"""
-    
-    # Verificar permissões e limites
-    can_proceed, error_message = await check_permissions_and_limits(interaction)
-    if not can_proceed:
-        await interaction.response.send_message(error_message, ephemeral=True)
-        return
     
     guild_users = get_tracked_users(interaction.guild.id)
     

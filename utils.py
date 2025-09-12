@@ -13,6 +13,10 @@ from typing import Dict, Any, Optional, List, Union, Tuple
 from logging.handlers import RotatingFileHandler
 import asyncio
 import traceback
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    import discord
 
 from config import LOGGING_CONFIG, BACKUP_CONFIG, RATE_LIMIT_CONFIG, BOT_OWNER_ID
 
@@ -61,7 +65,7 @@ class RobustLogger:
             message += f" | Dados: {json.dumps(extra_data, default=str)}"
         self.logger.warning(message)
     
-    def error(self, message: str, error: Optional[Exception] = None, extra_data: Optional[Dict] = None):
+    def error(self, message: str, error: Optional[BaseException] = None, extra_data: Optional[Dict] = None):
         """Log de erro com traceback"""
         if error:
             message += f" | Erro: {str(error)}"
@@ -71,7 +75,7 @@ class RobustLogger:
             message += f" | Dados: {json.dumps(extra_data, default=str)}"
         self.logger.error(message)
     
-    def critical(self, message: str, error: Optional[Exception] = None, extra_data: Optional[Dict] = None):
+    def critical(self, message: str, error: Optional[BaseException] = None, extra_data: Optional[Dict] = None):
         """Log crítico - também pode enviar para Discord"""
         if error:
             message += f" | Erro Crítico: {str(error)}"
@@ -352,31 +356,30 @@ class TaskWatchdog:
         self.max_restarts = 5
         self.backoff_time = 30  # Segundos
     
-    def register_task(self, task_name: str, task_func, *args, **kwargs):
-        """Registra uma task para monitoramento"""
+    def register_task(self, task_name: str, task_obj=None, restart_func=None):
+        """Registra uma task para monitoramento com capacidade de restart"""
         self.monitored_tasks[task_name] = {
-            "func": task_func,
-            "args": args,
-            "kwargs": kwargs,
-            "task": None
+            "task": task_obj,
+            "restart_func": restart_func or (lambda: task_obj.start() if task_obj else None)
         }
         self.restart_counts[task_name] = 0
         logger.info(f"Task registrada no watchdog: {task_name}")
     
-    def start_task(self, task_name: str):
-        """Inicia uma task monitorada"""
+    def restart_task(self, task_name: str):
+        """Reinicia uma task monitorada"""
         if task_name not in self.monitored_tasks:
             logger.error(f"Task não registrada: {task_name}")
             return False
             
         try:
             task_info = self.monitored_tasks[task_name]
-            if task_info["task"] and not task_info["task"].is_running():
-                task_info["task"].start()
-                logger.info(f"Task iniciada: {task_name}")
+            restart_func = task_info.get("restart_func")
+            if restart_func:
+                restart_func()
+                logger.info(f"Task reiniciada: {task_name}")
                 return True
         except Exception as e:
-            logger.error(f"Erro ao iniciar task {task_name}", e)
+            logger.error(f"Erro ao reiniciar task {task_name}", e)
             
         return False
     
@@ -396,12 +399,10 @@ class TaskWatchdog:
                         wait_time = self.backoff_time * (2 ** self.restart_counts[task_name])
                         await asyncio.sleep(min(wait_time, 300))  # Máx 5 minutos
                         
-                        try:
-                            task.start()
+                        if self.restart_task(task_name):
                             self.restart_counts[task_name] += 1
-                            logger.info(f"Task reiniciada: {task_name} (tentativa {self.restart_counts[task_name]})")
-                        except Exception as e:
-                            logger.error(f"Falha ao reiniciar task {task_name}", e)
+                        else:
+                            logger.error(f"Falha ao reiniciar task {task_name} após {self.restart_counts[task_name]} tentativas")
                             
             except Exception as e:
                 logger.error("Erro no watchdog de tasks", e)
@@ -425,7 +426,7 @@ class CriticalNotifier:
         """Define a instância do bot"""
         self.bot = bot_instance
     
-    async def notify_critical_error(self, error: Exception, context: Dict = None):
+    async def notify_critical_error(self, error: BaseException, context: Optional[Dict] = None):
         """Notifica erro crítico para proprietário"""
         # Sempre fazer backup em erro crítico se configurado
         if BACKUP_CONFIG.get("backup_on_critical_error", False):
@@ -457,10 +458,18 @@ class CriticalNotifier:
                 
             self.error_count += 1
             
+            # Import discord localmente para evitar problemas de dependência circular
+            try:
+                import discord
+                from datetime import datetime as dt_import
+            except ImportError:
+                logger.error("Discord.py não está disponível para envio de DM")
+                return
+            
             embed = discord.Embed(
                 title="🚨 Erro Crítico no Bot",
                 color=0xFF0000,
-                timestamp=datetime.utcnow()
+                timestamp=dt_import.utcnow()
             )
             embed.add_field(name="Erro", value=str(error)[:1000], inline=False)
             
@@ -477,13 +486,13 @@ class CriticalNotifier:
         except Exception as notify_error:
             logger.error("Erro ao enviar notificação crítica", notify_error)
 
-# Instância global do notificador
+# Instâncias globais
 critical_notifier = CriticalNotifier()
-
 # Instâncias globais dos sistemas
 input_validator = InputValidator()
 backup_manager = BackupManager()
 rate_limiter = RateLimiter()
+task_watchdog = TaskWatchdog()
 
 # ====== AUTO BACKUP ======
 

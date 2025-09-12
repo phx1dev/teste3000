@@ -5,18 +5,24 @@ Edite este arquivo para configurar o bot de acordo com suas necessidades
 
 # ====== CONFIGURAÇÕES DO BOT ======
 
-# IDs do Discord autorizados a usar os comandos do bot
-# IMPORTANTE: Substitua pelos IDs reais dos usuários autorizados
-AUTHORIZED_DISCORD_IDS = [
-    # Exemplos (substitua pelos IDs reais):
-    # 123456789012345678,  # ID do primeiro usuário autorizado
-    # 987654321098765432,  # ID do segundo usuário autorizado
-    # Para obter seu ID: Settings > Advanced > Developer Mode > Right click no usuário > Copy ID
-]
+# Para Railway, usar variáveis de ambiente
+import os
 
-# ID do proprietário do bot (tem acesso total mesmo se AUTHORIZED_DISCORD_IDS estiver vazio)
-# Use o comando '/setup' uma vez como owner para configurar automaticamente
-BOT_OWNER_ID = None  # Substitua pelo seu ID Discord
+# Bot Configuration
+BOT_TOKEN = os.getenv("BOT_TOKEN")
+BOT_OWNER_ID = int(os.getenv("BOT_OWNER_ID", "0")) if os.getenv("BOT_OWNER_ID") else None
+
+# Railway-specific configuration
+PORT = int(os.getenv("PORT", "5000"))
+RAILWAY_ENVIRONMENT = os.getenv("RAILWAY_ENVIRONMENT_NAME", "development")
+
+# IDs do Discord autorizados a usar os comandos do bot (via env vars para Railway)
+AUTHORIZED_DISCORD_IDS = []
+if os.getenv("AUTHORIZED_USER_IDS"):
+    try:
+        AUTHORIZED_DISCORD_IDS = [int(x.strip()) for x in os.getenv("AUTHORIZED_USER_IDS").split(",") if x.strip()]
+    except (ValueError, AttributeError):
+        AUTHORIZED_DISCORD_IDS = []
 
 # Canal onde o bot enviará notificações automáticas de badges e presença
 # IMPORTANTE: Substitua pelo ID do canal onde quer receber notificações
