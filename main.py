@@ -20,21 +20,18 @@ from sheets_sync import sheets_sync
 
 # Configure seus grupos de monitoramento aqui
 # Cada grupo pode ter seu próprio webhook Discord e lista de usuários
+# ⚠️ ATENÇÃO: Este sistema foi convertido para Bot Discord
+# Para usar o novo sistema, configure o arquivo discord_bot.py
+# e execute: python bot_main.py
+
 MONITOR_GROUPS = [
+    # WEBHOOKS REMOVIDOS POR SEGURANÇA
+    # Configure o bot Discord em config.py
     {
-        "name": "Nouvelle",
-        "webhook_url": "https://discord.com/api/webhooks/1413656858383880233/v5vplQKyAeU0Uj7x7vgzmevE46e7uqLMH_2U58rZpy8-musK_ZP01It8LY9A5dfvVaYh",
-        "user_ids": [1818113777,3925323630,1559981851,3679768182,1559307226,1986769914,8270594803,2851548104,749152903,4791299326,2797775875,1482947883,4691802178,860097528,1661528168,673514660]  # IDs dos usuários do Roblox para este grupo
-    },
-
-
-    
-    {
-        "name": "Comunidade Civil",
-        "webhook_url": "https://discord.com/api/webhooks/1413663842767994980/gGaGf8szgsSrEQ2OytcSzhODmLu0X5blNcZNAlcWTh6c1z8fO1Ya0ZXEBukUuPDxrgx8",  # Cole aqui a URL do segundo webhook
-        "user_ids": [1390165577,679520330]  # Adicione aqui os IDs dos usuários do segundo grupo
+        "name": "Sistema Descontinuado",
+        "webhook_url": None,
+        "user_ids": []  # Migre para o bot Discord
     }
-    # Adicione mais grupos conforme necessário...
 ]
 
 CHECK_INTERVAL = 30  # Intervalo de checagem em segundos (30 = 30 segundos)
