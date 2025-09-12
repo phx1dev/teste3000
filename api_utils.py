@@ -324,7 +324,7 @@ def get_user_info_by_username(username: str) -> Tuple[Optional[Dict], bool, Opti
             max_retries=2, timeout=10
         )
         
-        if not success:
+        if not success or not data:
             return None, False, error
         
         users_data = data.get('data', [])
