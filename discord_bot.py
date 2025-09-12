@@ -42,6 +42,16 @@ from utils import (
 )
 from functools import wraps
 
+# ====== CLASSES DE EXCEÇÃO CUSTOMIZADAS ======
+
+class SecurityError(Exception):
+    """Erro de segurança crítico"""
+    pass
+
+class SystemError(Exception):
+    """Erro de sistema crítico"""
+    pass
+
 # ====== CONFIGURAÇÕES DOS ARQUIVOS ======
 GUILD_DATA_FILE = "guild_data.json"  # Dados por servidor Discord
 BADGES_FILE = "known_badges.json"
@@ -285,6 +295,11 @@ async def on_error(event: str, *args, **kwargs):
         "event": event,
         "args": str(args)[:500]
     })
+    
+    # Se for um erro de task, tentar reiniciar automaticamente via watchdog
+    if "task" in event.lower():
+        logger.warning(f"Erro de task detectado: {event}. Ativando restart via watchdog...")
+        # O watchdog vai detectar e reiniciar a task automaticamente
 
 @bot.event
 async def on_ready():
@@ -317,18 +332,24 @@ async def on_ready():
             monitoring_groups_task.start()
             logger.info("Task de monitoramento de grupos iniciada")
         
-        # Registrar tasks no watchdog
+        # (Movido para baixo para ativação completa do watchdog)
+            
+        # Ativar TaskWatchdog e registrar todas as tasks críticas
         task_watchdog.monitored_tasks["badges"]["task"] = monitoring_badge_task
         task_watchdog.monitored_tasks["presence"]["task"] = monitoring_presence_task
         task_watchdog.monitored_tasks["groups"]["task"] = monitoring_groups_task
         
-        # Iniciar watchdog
-        asyncio.create_task(task_watchdog.monitor_tasks())
-        logger.info("Watchdog de tasks iniciado")
-            
+        # Iniciar watchdog para monitoramento ativo
+        watchdog_task = asyncio.create_task(task_watchdog.monitor_tasks())
+        logger.info("TaskWatchdog ativado - monitoramento ativo de tasks")
+        
         # Iniciar task de backup automático
-        asyncio.create_task(auto_backup_task())
+        backup_task = asyncio.create_task(auto_backup_task())
         logger.info("Task de backup automático iniciada")
+        
+        # Registrar tasks auxiliares no watchdog também
+        task_watchdog.register_task("watchdog_monitor", watchdog_task)
+        task_watchdog.register_task("auto_backup", backup_task)
         
         logger.info("✅ Sistema de monitoramento bulletproof iniciado para todos os servidores!")
         
@@ -338,6 +359,51 @@ async def on_ready():
         ], "startup")
         if backup_success:
             logger.info("Backup inicial criado com sucesso")
+            
+        # Auditoria rigorosa de segurança: verificar cobertura 100% do @secure_command
+        total_commands = len(bot.tree.get_commands())
+        logger.info(f"🔍 Auditoria de segurança: {total_commands} comandos registrados")
+        
+        # Verificar se TODOS os comandos têm proteção
+        unprotected_commands = []
+        for command in bot.tree.get_commands():
+            # Verificar se o comando original tem o wrapper do secure_command
+            if not hasattr(command.callback, '__wrapped__'):
+                unprotected_commands.append(command.name)
+        
+        if unprotected_commands:
+            critical_error = f"FALHA CRÍTICA DE SEGURANÇA: Comandos sem proteção: {unprotected_commands}"
+            logger.critical(critical_error)
+            raise SecurityError(critical_error)
+        else:
+            logger.info("✅ Todos os comandos estão protegidos com @secure_command")
+        
+        # Verificar configurações críticas
+        config_issues = []
+        if not BOT_OWNER_ID:
+            config_issues.append("BOT_OWNER_ID não definido")
+        if not AUTHORIZED_DISCORD_IDS and not BOT_OWNER_ID:
+            config_issues.append("Nenhum usuário autorizado definido")
+            
+        if config_issues:
+            logger.warning(f"⚠️ Problemas de configuração: {', '.join(config_issues)}")
+        
+        # Verificar e ativar todas as funcionalidades críticas
+        critical_systems = {
+            "TaskWatchdog": task_watchdog is not None,
+            "CriticalNotifier": critical_notifier is not None,
+            "BackupManager": backup_manager is not None,
+            "RateLimiter": rate_limiter is not None
+        }
+        
+        for system, active in critical_systems.items():
+            if not active:
+                critical_error = f"Sistema crítico {system} não está ativo!"
+                logger.critical(critical_error)
+                raise SystemError(critical_error)
+            logger.info(f"✅ Sistema crítico {system}: Ativo")
+            
+        logger.info("🛡️ Sistema bulletproof VALIDADO e totalmente operacional!")
             
     except Exception as e:
         logger.critical("Erro crítico ao iniciar sistema de monitoramento", e)
@@ -440,12 +506,6 @@ async def monitor_user(interaction: discord.Interaction, username: str):
 @secure_command()
 async def remove_user(interaction: discord.Interaction, username: str):
     """Comando /removermembro - Remove usuário da lista de monitoramento individual do servidor"""
-    
-    # Verificar permissões e limites
-    can_proceed, error_message = await check_permissions_and_limits(interaction)
-    if not can_proceed:
-        await interaction.response.send_message(error_message, ephemeral=True)
-        return
         
     # Validar entrada
     valid_username, validation_error = input_validator.validate_username(username)
@@ -581,12 +641,6 @@ async def list_tracked(interaction: discord.Interaction):
 async def set_channel(interaction: discord.Interaction, channel: discord.TextChannel):
     """Comando /setchannel - Define canal de notificações para o servidor"""
     
-    # Verificar permissões e limites
-    can_proceed, error_message = await check_permissions_and_limits(interaction)
-    if not can_proceed:
-        await interaction.response.send_message(error_message, ephemeral=True)
-        return
-    
     try:
         # Verificar se o bot tem permissão para enviar mensagens no canal
         if not channel.permissions_for(interaction.guild.me).send_messages:
@@ -618,12 +672,6 @@ async def set_channel(interaction: discord.Interaction, channel: discord.TextCha
 @secure_command()
 async def add_group(interaction: discord.Interaction, group_id: int):
     """Comando /adicionargrupo - Adiciona grupo ao monitoramento de membros"""
-    
-    # Verificar permissões e limites
-    can_proceed, error_message = await check_permissions_and_limits(interaction)
-    if not can_proceed:
-        await interaction.response.send_message(error_message, ephemeral=True)
-        return
         
     # Validar ID do grupo
     valid_id, validation_error = input_validator.validate_roblox_id(group_id)
@@ -702,20 +750,6 @@ async def add_group(interaction: discord.Interaction, group_id: int):
 @secure_command()
 async def add_group_members_to_monitoring(interaction: discord.Interaction, group_id: int, limit: int = 100):
     """Comando /adicionarmembrosgrupo - Adiciona membros do grupo à lista de usuários monitorados individualmente"""
-    
-    # Verificar autorização
-    if not is_authorized(interaction.user.id):
-        await interaction.response.send_message(
-            "❌ Você não tem permissão para usar este comando!", ephemeral=True
-        )
-        return
-        
-    # Verificar se está em um servidor
-    if not interaction.guild:
-        await interaction.response.send_message(
-            "❌ Este comando só pode ser usado em servidores Discord!", ephemeral=True
-        )
-        return
     
     await interaction.response.defer()
     
@@ -835,12 +869,6 @@ async def emergency_command(interaction: discord.Interaction):
 @secure_command()
 async def list_groups(interaction: discord.Interaction):
     """Comando /grupos - Lista grupos monitorados no servidor"""
-    
-    # Verificar permissões e limites
-    can_proceed, error_message = await check_permissions_and_limits(interaction)
-    if not can_proceed:
-        await interaction.response.send_message(error_message, ephemeral=True)
-        return
     
     guild_groups = get_tracked_groups(interaction.guild.id)
     

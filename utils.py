@@ -305,6 +305,10 @@ def safe_json_save(file_path: str, data: Dict) -> bool:
         
         with open(temp_path, 'w', encoding='utf-8') as f:
             json.dump(data, f, indent=2, ensure_ascii=False)
+            # Garantir que os dados foram escritos no disco
+            f.flush()
+            os.fsync(f.fileno())
+        
         
         # Mover arquivo temporário para o final (operação atômica)
         if os.name == 'nt':  # Windows
@@ -423,6 +427,16 @@ class CriticalNotifier:
     
     async def notify_critical_error(self, error: Exception, context: Dict = None):
         """Notifica erro crítico para proprietário"""
+        # Sempre fazer backup em erro crítico se configurado
+        if BACKUP_CONFIG.get("backup_on_critical_error", False):
+            try:
+                backup_manager.create_backup([
+                    "guild_data.json", "known_badges.json", "last_presence.json", "bot.log"
+                ], f"critical_error_{int(time.time())}")
+                logger.info("Backup automático criado devido a erro crítico")
+            except Exception as backup_error:
+                logger.error("Falha ao criar backup de emergência", backup_error)
+        
         if not LOGGING_CONFIG.get("log_errors_to_discord", False):
             return
             
@@ -433,6 +447,7 @@ class CriticalNotifier:
             return
             
         if not self.bot or not BOT_OWNER_ID:
+            logger.warning("CriticalNotifier: Bot ou BOT_OWNER_ID não configurado para DMs")
             return
             
         try:
