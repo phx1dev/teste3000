@@ -21,7 +21,8 @@ class RateLimiter:
             'badges': 60,      # 60 calls/minute para badges API
             'presence': 120,   # 120 calls/minute para presence API
             'users': 600,      # 600 calls/minute para users API
-            'places': 600      # 600 calls/minute para places API
+            'places': 600,     # 600 calls/minute para places API
+            'groups': 600      # 600 calls/minute para groups API
         }
     
     def wait_if_needed(self, endpoint: str):
@@ -415,6 +416,130 @@ def get_place_info_robust(place_id: int) -> Tuple[Optional[Dict], bool, Optional
         
     except Exception as e:
         return None, False, f"Erro inesperado: {e}"
+
+def get_group_info_robust(group_id: int) -> Tuple[Optional[Dict], bool, Optional[str]]:
+    """
+    Versão robusta para obter informações do grupo
+    Returns: (info, sucesso, erro)
+    """
+    try:
+        url = f"https://groups.roblox.com/v1/groups/{group_id}"
+        
+        success, data, error = api_client.make_request(
+            url, 'groups', cache_ttl=30,  # Cache por 30 minutos
+            max_retries=2, timeout=10
+        )
+        
+        if not success:
+            return None, False, error
+        
+        if not data or 'id' not in data:
+            return None, False, "Resposta da API inválida"
+        
+        return data, True, None
+        
+    except Exception as e:
+        return None, False, f"Erro inesperado: {e}"
+
+def get_group_members_robust(group_id: int, limit: int = 100) -> Tuple[List[Dict], bool, Optional[str]]:
+    """
+    Versão robusta para obter membros do grupo
+    Usa a API de roles para obter membros de todos os papéis
+    Returns: (membros, sucesso, erro)
+    """
+    try:
+        # Primeiro obter todos os roles do grupo
+        roles_url = f"https://groups.roblox.com/v1/groups/{group_id}/roles"
+        
+        success, roles_data, error = api_client.make_request(
+            roles_url, 'groups', max_retries=2, timeout=10
+        )
+        
+        if not success:
+            return [], False, error
+        
+        if not roles_data or 'roles' not in roles_data:
+            return [], False, "Não foi possível obter roles do grupo"
+        
+        all_members = []
+        unique_members = {}  # Para evitar duplicatas
+        
+        # Iterar através de cada role
+        for role in roles_data['roles']:
+            role_id = role.get('id')
+            if not role_id:
+                continue
+            
+            # Obter membros deste role
+            members_url = f"https://groups.roblox.com/v1/groups/{group_id}/roles/{role_id}/users"
+            cursor = None
+            
+            while len(all_members) < limit:
+                params = {
+                    'limit': min(100, limit - len(all_members)),
+                    'sortOrder': 'Asc'
+                }
+                
+                if cursor:
+                    params['cursor'] = cursor
+                
+                success, data, error = api_client.make_request(
+                    members_url, 'groups', params=params,
+                    max_retries=2, timeout=15
+                )
+                
+                if not success:
+                    print(f"Erro ao obter membros do role {role_id}: {error}")
+                    break
+                
+                if not data or 'data' not in data:
+                    break
+                
+                batch_members = data.get('data', [])
+                if not batch_members:
+                    break
+                
+                # Adicionar membros únicos
+                for member in batch_members:
+                    user_id = member.get('userId')
+                    if user_id and user_id not in unique_members:
+                        unique_members[user_id] = {
+                            'user': {
+                                'userId': user_id,
+                                'username': member.get('username', f'User{user_id}'),
+                                'displayName': member.get('displayName', member.get('username', f'User{user_id}'))
+                            },
+                            'role': {
+                                'id': role_id,
+                                'name': role.get('name', 'Unknown Role'),
+                                'rank': role.get('rank', 0)
+                            }
+                        }
+                        all_members.append(unique_members[user_id])
+                        
+                        if len(all_members) >= limit:
+                            break
+                
+                cursor = data.get('nextPageCursor')
+                if not cursor:
+                    break
+                
+                # Pequeno delay para evitar rate limit
+                time.sleep(0.1)
+                
+                if len(all_members) >= limit:
+                    break
+            
+            if len(all_members) >= limit:
+                break
+            
+            # Delay entre roles para evitar rate limiting
+            time.sleep(0.2)
+        
+        return all_members, True, None
+        
+    except Exception as e:
+        return [], False, f"Erro inesperado: {e}"
 
 def print_api_stats():
     """Imprime estatísticas das APIs"""

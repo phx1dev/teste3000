@@ -12,6 +12,8 @@ from api_utils import (
     get_user_avatar_robust,
     get_badge_info_robust,
     get_place_info_robust,
+    get_group_info_robust,
+    get_group_members_robust,
     print_api_stats
 )
 from config import (
@@ -27,10 +29,14 @@ from config import (
 TRACKED_USERS_FILE = "tracked_users.json"
 BADGES_FILE = "known_badges.json"
 PRESENCE_FILE = "last_presence.json"
+TRACKED_GROUPS_FILE = "tracked_groups.json"
+BOT_CONFIG_FILE = "bot_config.json"
 
 # ====== VARIÁVEIS GLOBAIS ======
 bot = commands.Bot(command_prefix='!', intents=discord.Intents.all())
 tracked_users = {}  # {roblox_user_id: {"name": "username", "added_by": discord_id}}
+tracked_groups = {}  # {group_id: {"name": "groupname", "member_count": 0, "added_by": discord_id}}
+bot_config = {"notification_channel_id": None}  # Configurações do bot
 monitoring_active = False
 monitoring_lock = threading.Lock()
 
@@ -52,6 +58,40 @@ def save_tracked_users():
     """Salva a lista de usuários monitorados"""
     with open(TRACKED_USERS_FILE, 'w') as f:
         json.dump(tracked_users, f, indent=2)
+
+def load_tracked_groups():
+    """Carrega a lista de grupos monitorados"""
+    global tracked_groups
+    if os.path.exists(TRACKED_GROUPS_FILE):
+        try:
+            with open(TRACKED_GROUPS_FILE, 'r') as f:
+                tracked_groups = json.load(f)
+        except:
+            tracked_groups = {}
+    else:
+        tracked_groups = {}
+
+def save_tracked_groups():
+    """Salva a lista de grupos monitorados"""
+    with open(TRACKED_GROUPS_FILE, 'w') as f:
+        json.dump(tracked_groups, f, indent=2)
+
+def load_bot_config():
+    """Carrega configurações do bot"""
+    global bot_config
+    if os.path.exists(BOT_CONFIG_FILE):
+        try:
+            with open(BOT_CONFIG_FILE, 'r') as f:
+                bot_config = json.load(f)
+        except:
+            bot_config = {"notification_channel_id": None}
+    else:
+        bot_config = {"notification_channel_id": None}
+
+def save_bot_config():
+    """Salva configurações do bot"""
+    with open(BOT_CONFIG_FILE, 'w') as f:
+        json.dump(bot_config, f, indent=2)
 
 def load_known_badges():
     """Carrega as badges já conhecidas do arquivo"""
@@ -125,13 +165,18 @@ async def on_ready():
     
     # Carregar dados salvos
     load_tracked_users()
+    load_tracked_groups()
+    load_bot_config()
     
     # Iniciar monitoramento automático apenas se o canal estiver configurado
-    if NOTIFICATION_CHANNEL_ID:
+    notification_channel = bot_config.get("notification_channel_id") or NOTIFICATION_CHANNEL_ID
+    if notification_channel:
         if not monitoring_badge_task.is_running():
             monitoring_badge_task.start()
         if not monitoring_presence_task.is_running():
             monitoring_presence_task.start()
+        if not monitoring_groups_task.is_running():
+            monitoring_groups_task.start()
     else:
         print("⚠️ Canal de notificações não configurado. Monitoramento automático desabilitado.")
     
@@ -352,6 +397,202 @@ async def list_tracked(interaction: discord.Interaction):
     
     await interaction.response.send_message(embed=embed)
 
+@bot.tree.command(name="setchannel", description="Define o canal onde o bot enviará notificações")
+@discord.app_commands.describe(channel="Canal onde as notificações serão enviadas")
+async def set_channel(interaction: discord.Interaction, channel: discord.TextChannel):
+    """Comando /setchannel - Define canal de notificações"""
+    
+    # Verificar autorização
+    if not is_authorized(interaction.user.id):
+        await interaction.response.send_message(
+            "❌ Você não tem permissão para usar este comando!", ephemeral=True
+        )
+        return
+    
+    try:
+        # Verificar se o bot tem permissão para enviar mensagens no canal
+        if not channel.permissions_for(interaction.guild.me).send_messages:
+            await interaction.response.send_message(
+                f"❌ Não tenho permissão para enviar mensagens em {channel.mention}!"
+            )
+            return
+        
+        # Salvar configuração
+        bot_config["notification_channel_id"] = channel.id
+        save_bot_config()
+        
+        await interaction.response.send_message(
+            f"✅ Canal de notificações configurado para {channel.mention}!\n"
+            f"📊 Agora receberei notificações de badges e presença neste canal."
+        )
+        
+        # Reiniciar monitoramento se não estava ativo
+        if not monitoring_badge_task.is_running():
+            monitoring_badge_task.start()
+        if not monitoring_presence_task.is_running():
+            monitoring_presence_task.start()
+        if not monitoring_groups_task.is_running():
+            monitoring_groups_task.start()
+            
+    except Exception as e:
+        await interaction.response.send_message(f"❌ Erro: {e}")
+
+@bot.tree.command(name="adicionargrupo", description="Adiciona um grupo do Roblox para monitoramento")
+@discord.app_commands.describe(group_id="ID do grupo do Roblox para monitorar")
+async def add_group(interaction: discord.Interaction, group_id: int):
+    """Comando /adicionargrupo - Adiciona grupo ao monitoramento"""
+    
+    # Verificar autorização
+    if not is_authorized(interaction.user.id):
+        await interaction.response.send_message(
+            "❌ Você não tem permissão para usar este comando!", ephemeral=True
+        )
+        return
+    
+    await interaction.response.defer()
+    
+    try:
+        # Verificar se já está sendo monitorado
+        if str(group_id) in tracked_groups:
+            await interaction.followup.send(
+                f"⚠️ O grupo ID {group_id} já está sendo monitorado!"
+            )
+            return
+        
+        # Obter informações do grupo
+        group_info, success, error = await asyncio.to_thread(get_group_info_robust, group_id)
+        if not success:
+            await interaction.followup.send(f"❌ Erro ao obter informações do grupo: {error}")
+            return
+        
+        # Adicionar à lista de grupos monitorados
+        tracked_groups[str(group_id)] = {
+            "name": group_info.get('name', f'Grupo {group_id}'),
+            "member_count": group_info.get('memberCount', 0),
+            "added_by": interaction.user.id,
+            "added_at": datetime.now().isoformat()
+        }
+        save_tracked_groups()
+        
+        embed = discord.Embed(
+            title="✅ Grupo Adicionado ao Monitoramento",
+            color=COLORS["success"]
+        )
+        embed.add_field(name="📋 Nome", value=group_info.get('name'), inline=True)
+        embed.add_field(name="🆔 ID", value=str(group_id), inline=True)
+        embed.add_field(name="👥 Membros", value=str(group_info.get('memberCount', 0)), inline=True)
+        embed.add_field(name="📝 Descrição", value=group_info.get('description', 'Sem descrição')[:100], inline=False)
+        
+        await interaction.followup.send(embed=embed)
+        
+    except Exception as e:
+        await interaction.followup.send(f"❌ Erro: {e}")
+
+@bot.tree.command(name="adicionarmembros", description="Adiciona todos os membros de um grupo à lista de monitoramento")
+@discord.app_commands.describe(group_id="ID do grupo do Roblox", limit="Limite de membros para adicionar (padrão: 100)")
+async def add_group_members(interaction: discord.Interaction, group_id: int, limit: int = 100):
+    """Comando /adicionarmembros - Adiciona membros do grupo à lista"""
+    
+    # Verificar autorização
+    if not is_authorized(interaction.user.id):
+        await interaction.response.send_message(
+            "❌ Você não tem permissão para usar este comando!", ephemeral=True
+        )
+        return
+    
+    await interaction.response.defer()
+    
+    if limit > 500:
+        await interaction.followup.send("⚠️ Limite máximo é de 500 membros por vez.")
+        return
+    
+    try:
+        # Obter informações do grupo primeiro
+        group_info, success, error = await asyncio.to_thread(get_group_info_robust, group_id)
+        if not success:
+            await interaction.followup.send(f"❌ Erro ao obter informações do grupo: {error}")
+            return
+        
+        # Obter membros do grupo
+        members, success, error = await asyncio.to_thread(get_group_members_robust, group_id, limit)
+        if not success:
+            await interaction.followup.send(f"❌ Erro ao obter membros do grupo: {error}")
+            return
+        
+        if not members:
+            await interaction.followup.send("❌ Nenhum membro encontrado no grupo!")
+            return
+        
+        # Adicionar membros à lista de usuários monitorados
+        added_count = 0
+        already_tracked = 0
+        
+        for member in members:
+            user_id = member.get('user', {}).get('userId')
+            username = member.get('user', {}).get('username')
+            
+            if not user_id or not username:
+                continue
+            
+            if str(user_id) not in tracked_users:
+                tracked_users[str(user_id)] = {
+                    "name": username,
+                    "added_by": interaction.user.id,
+                    "added_at": datetime.now().isoformat(),
+                    "from_group": group_id,
+                    "from_group_name": group_info.get('name', f'Grupo {group_id}')
+                }
+                added_count += 1
+            else:
+                already_tracked += 1
+        
+        save_tracked_users()
+        
+        embed = discord.Embed(
+            title="✅ Membros do Grupo Adicionados",
+            color=COLORS["success"]
+        )
+        embed.add_field(name="📋 Grupo", value=group_info.get('name'), inline=True)
+        embed.add_field(name="🆔 ID do Grupo", value=str(group_id), inline=True)
+        embed.add_field(name="➕ Adicionados", value=str(added_count), inline=True)
+        embed.add_field(name="⚠️ Já Monitorados", value=str(already_tracked), inline=True)
+        embed.add_field(name="📊 Total Analisados", value=str(len(members)), inline=True)
+        
+        await interaction.followup.send(embed=embed)
+        
+    except Exception as e:
+        await interaction.followup.send(f"❌ Erro: {e}")
+
+@bot.tree.command(name="grupos", description="Lista todos os grupos monitorados")
+async def list_groups(interaction: discord.Interaction):
+    """Comando /grupos - Lista grupos monitorados"""
+    
+    # Verificar autorização
+    if not is_authorized(interaction.user.id):
+        await interaction.response.send_message(
+            "❌ Você não tem permissão para usar este comando!", ephemeral=True
+        )
+        return
+    
+    if not tracked_groups:
+        await interaction.response.send_message("📋 Nenhum grupo está sendo monitorado.")
+        return
+    
+    embed = discord.Embed(
+        title="📋 Grupos Monitorados",
+        color=COLORS["info"],
+        description=f"Total: {len(tracked_groups)} grupo(s)"
+    )
+    
+    for group_id, group_data in tracked_groups.items():
+        embed.add_field(
+            name=f"👥 {group_data['name']}",
+            value=f"ID: {group_id}\nMembros: {group_data.get('member_count', 'N/A')}\nAdicionado em: {group_data.get('added_at', 'N/A')[:10]}",
+            inline=True
+        )
+    
+    await interaction.response.send_message(embed=embed)
+
 # ====== MONITORAMENTO AUTOMÁTICO ======
 
 @tasks.loop(seconds=CHECK_INTERVAL)
@@ -377,13 +618,16 @@ async def monitoring_badge_task():
                 user_known_badges = set(known_badges.get(roblox_id_str, []))
                 new_badge_ids = current_badge_ids - user_known_badges
                 
-                if new_badge_ids and NOTIFICATION_CHANNEL_ID:
-                    channel = bot.get_channel(NOTIFICATION_CHANNEL_ID)
-                    if channel and hasattr(channel, 'send'):
-                        # Obter info do usuário usando execução assíncrona
-                        try:
-                            user_info, _, _ = await asyncio.to_thread(get_user_info_robust, roblox_id)
-                            avatar_url, _, _ = await asyncio.to_thread(get_user_avatar_robust, roblox_id)
+                if new_badge_ids:
+                    # Obter canal de notificações configurado
+                    notification_channel_id = bot_config.get("notification_channel_id") or NOTIFICATION_CHANNEL_ID
+                    if notification_channel_id:
+                        channel = bot.get_channel(notification_channel_id)
+                        if channel and isinstance(channel, (discord.TextChannel, discord.Thread)):
+                            # Obter info do usuário usando execução assíncrona
+                            try:
+                                user_info, _, _ = await asyncio.to_thread(get_user_info_robust, roblox_id)
+                                avatar_url, _, _ = await asyncio.to_thread(get_user_avatar_robust, roblox_id)
                             
                             for badge_id in new_badge_ids:
                                 badge_info, success, _ = await asyncio.to_thread(get_badge_info_robust, badge_id)
@@ -476,6 +720,74 @@ async def monitoring_presence_task():
             
     except Exception as e:
         print(f"❌ Erro no monitoramento de presença: {e}")
+
+@tasks.loop(seconds=CHECK_INTERVAL * 3)  # Grupos são verificados com menos frequência
+async def monitoring_groups_task():
+    """Task de monitoramento de grupos"""
+    if not tracked_groups:
+        return
+    
+    try:
+        with monitoring_lock:
+            # Obter canal de notificações
+            notification_channel_id = bot_config.get("notification_channel_id") or NOTIFICATION_CHANNEL_ID
+            if not notification_channel_id:
+                return
+            
+            channel = bot.get_channel(notification_channel_id)
+            if not channel or not isinstance(channel, (discord.TextChannel, discord.Thread)):
+                return
+            
+            for group_id_str, group_data in tracked_groups.items():
+                try:
+                    group_id = int(group_id_str)
+                    old_member_count = group_data.get('member_count', 0)
+                    
+                    # Obter informações atuais do grupo
+                    group_info, success, error = await asyncio.to_thread(get_group_info_robust, group_id)
+                    if not success:
+                        continue
+                    
+                    current_member_count = group_info.get('memberCount', 0)
+                    
+                    # Verificar mudança na quantidade de membros
+                    if current_member_count != old_member_count:
+                        # Atualizar dados do grupo
+                        tracked_groups[group_id_str]['member_count'] = current_member_count
+                        
+                        # Determinar se aumentou ou diminuiu
+                        if current_member_count > old_member_count:
+                            change_text = f"📈 +{current_member_count - old_member_count} novos membros"
+                            color = COLORS["success"]
+                        else:
+                            change_text = f"📉 -{old_member_count - current_member_count} membros saíram"
+                            color = COLORS["warning"]
+                        
+                        embed = discord.Embed(
+                            title="👥 Mudança na Quantidade de Membros",
+                            color=color,
+                            timestamp=datetime.utcnow()
+                        )
+                        embed.add_field(name="📋 Grupo", value=group_data['name'], inline=True)
+                        embed.add_field(name="🆔 ID", value=group_id_str, inline=True)
+                        embed.add_field(name="📊 Mudança", value=change_text, inline=True)
+                        embed.add_field(name="👥 Antes", value=str(old_member_count), inline=True)
+                        embed.add_field(name="👥 Agora", value=str(current_member_count), inline=True)
+                        
+                        await channel.send(embed=embed)
+                        
+                        # Pequeno delay entre notificações
+                        await asyncio.sleep(1)
+                        
+                except (ValueError, TypeError) as e:
+                    print(f"Erro ao processar grupo {group_id_str}: {e}")
+                    continue
+            
+            # Salvar mudanças
+            save_tracked_groups()
+            
+    except Exception as e:
+        print(f"❌ Erro no monitoramento de grupos: {e}")
 
 # ====== EXECUÇÃO DO BOT ======
 
