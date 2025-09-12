@@ -9,6 +9,7 @@ from api_utils import (
     get_user_badges_robust,
     get_users_presence_robust, 
     get_user_info_robust,
+    get_user_info_by_username,
     get_user_avatar_robust,
     get_badge_info_robust,
     get_place_info_robust,
@@ -20,78 +21,63 @@ from config import (
     AUTHORIZED_DISCORD_IDS,
     NOTIFICATION_CHANNEL_ID,
     CHECK_INTERVAL,
-    MESSAGES,
     COLORS,
     EMOJIS
 )
 
 # ====== CONFIGURAÇÕES DOS ARQUIVOS ======
-TRACKED_USERS_FILE = "tracked_users.json"
+GUILD_DATA_FILE = "guild_data.json"  # Dados por servidor Discord
 BADGES_FILE = "known_badges.json"
 PRESENCE_FILE = "last_presence.json"
-TRACKED_GROUPS_FILE = "tracked_groups.json"
-BOT_CONFIG_FILE = "bot_config.json"
 
 # ====== VARIÁVEIS GLOBAIS ======
 bot = commands.Bot(command_prefix='!', intents=discord.Intents.all())
-tracked_users = {}  # {roblox_user_id: {"name": "username", "added_by": discord_id}}
-tracked_groups = {}  # {group_id: {"name": "groupname", "member_count": 0, "added_by": discord_id}}
-bot_config = {"notification_channel_id": None}  # Configurações do bot
+# Estrutura baseada em guild: {guild_id: {"tracked_users": {...}, "tracked_groups": {...}, "config": {...}}}
+guild_data = {}
 monitoring_active = False
 monitoring_lock = threading.Lock()
 
 # ====== FUNÇÕES DE ARQUIVO ======
 
-def load_tracked_users():
-    """Carrega a lista de usuários monitorados"""
-    global tracked_users
-    if os.path.exists(TRACKED_USERS_FILE):
+def load_guild_data():
+    """Carrega dados de todos os servidores"""
+    global guild_data
+    if os.path.exists(GUILD_DATA_FILE):
         try:
-            with open(TRACKED_USERS_FILE, 'r') as f:
-                tracked_users = json.load(f)
+            with open(GUILD_DATA_FILE, 'r') as f:
+                guild_data = json.load(f)
         except:
-            tracked_users = {}
+            guild_data = {}
     else:
-        tracked_users = {}
+        guild_data = {}
 
-def save_tracked_users():
-    """Salva a lista de usuários monitorados"""
-    with open(TRACKED_USERS_FILE, 'w') as f:
-        json.dump(tracked_users, f, indent=2)
+def save_guild_data():
+    """Salva dados de todos os servidores"""
+    with open(GUILD_DATA_FILE, 'w') as f:
+        json.dump(guild_data, f, indent=2)
 
-def load_tracked_groups():
-    """Carrega a lista de grupos monitorados"""
-    global tracked_groups
-    if os.path.exists(TRACKED_GROUPS_FILE):
-        try:
-            with open(TRACKED_GROUPS_FILE, 'r') as f:
-                tracked_groups = json.load(f)
-        except:
-            tracked_groups = {}
-    else:
-        tracked_groups = {}
+def get_guild_data(guild_id: int):
+    """Obtém dados do servidor específico"""
+    guild_str = str(guild_id)
+    if guild_str not in guild_data:
+        guild_data[guild_str] = {
+            "tracked_users": {},
+            "tracked_groups": {},
+            "config": {"notification_channel_id": None}
+        }
+    return guild_data[guild_str]
 
-def save_tracked_groups():
-    """Salva a lista de grupos monitorados"""
-    with open(TRACKED_GROUPS_FILE, 'w') as f:
-        json.dump(tracked_groups, f, indent=2)
+def get_tracked_users(guild_id: int):
+    """Obtém usuários monitorados do servidor"""
+    return get_guild_data(guild_id)["tracked_users"]
 
-def load_bot_config():
-    """Carrega configurações do bot"""
-    global bot_config
-    if os.path.exists(BOT_CONFIG_FILE):
-        try:
-            with open(BOT_CONFIG_FILE, 'r') as f:
-                bot_config = json.load(f)
-        except:
-            bot_config = {"notification_channel_id": None}
-    else:
-        bot_config = {"notification_channel_id": None}
+def get_tracked_groups(guild_id: int):
+    """Obtém grupos monitorados do servidor"""  
+    return get_guild_data(guild_id)["tracked_groups"]
 
-def save_bot_config():
-    """Salva configurações do bot"""
-    with open(BOT_CONFIG_FILE, 'w') as f:
-        json.dump(bot_config, f, indent=2)
+def get_guild_config(guild_id: int):
+    """Obtém configurações do servidor"""
+    return get_guild_data(guild_id)["config"]
 
 def load_known_badges():
     """Carrega as badges já conhecidas do arquivo"""
@@ -103,10 +89,10 @@ def load_known_badges():
             return {}
     return {}
 
-def save_known_badges(badges_data):
+def save_known_badges(badges):
     """Salva as badges conhecidas no arquivo"""
     with open(BADGES_FILE, 'w') as f:
-        json.dump(badges_data, f, indent=2)
+        json.dump(badges, f, indent=2)
 
 def load_last_presence():
     """Carrega o último status de presença dos usuários"""
@@ -123,37 +109,29 @@ def save_last_presence(presence_data):
     with open(PRESENCE_FILE, 'w') as f:
         json.dump(presence_data, f, indent=2)
 
-# ====== FUNÇÕES AUXILIARES ======
-
-def is_authorized(user_id):
+def is_authorized(user_id: int) -> bool:
     """Verifica se o usuário tem permissão para usar os comandos"""
     return user_id in AUTHORIZED_DISCORD_IDS
 
-async def find_roblox_user_by_name(username):
-    """Encontra um usuário do Roblox pelo nome de usuário usando aiohttp"""
-    try:
-        import aiohttp
-        async with aiohttp.ClientSession() as session:
-            # API para buscar usuário por nome
-            async with session.post("https://users.roblox.com/v1/usernames/users", 
-                                   json={"usernames": [username]}) as response:
-                if response.status == 200:
-                    data = await response.json()
-                    if data.get('data') and len(data['data']) > 0:
-                        return data['data'][0]['id']
-    except Exception as e:
-        print(f"Erro ao buscar usuário {username}: {e}")
-    return None
-
-def presence_type_to_text(presence_type):
-    """Converte o código de presença para texto legível"""
+def presence_type_to_text(presence_type: int) -> str:
+    """Converte código de presença para texto"""
     presence_map = {
-        0: "Offline",
-        1: "Online", 
-        2: "Em Jogo",
-        3: "No Studio"
+        0: "📴 Offline",
+        1: "🟢 Online", 
+        2: "🎮 Jogando",
+        3: "🛠️ Studio"
     }
-    return presence_map.get(presence_type, "Desconhecido")
+    return presence_map.get(presence_type, "❓ Desconhecido")
+
+def get_notification_channel(guild_id: int):
+    """Obtém o canal de notificações para o servidor"""
+    config = get_guild_config(guild_id)
+    channel_id = config.get("notification_channel_id") or NOTIFICATION_CHANNEL_ID
+    if channel_id:
+        channel = bot.get_channel(channel_id)
+        if channel and isinstance(channel, (discord.TextChannel, discord.Thread)):
+            return channel
+    return None
 
 # ====== EVENTOS DO BOT ======
 
@@ -164,35 +142,31 @@ async def on_ready():
     print(f'IDs autorizados: {AUTHORIZED_DISCORD_IDS}')
     
     # Carregar dados salvos
-    load_tracked_users()
-    load_tracked_groups()
-    load_bot_config()
+    load_guild_data()
     
-    # Iniciar monitoramento automático apenas se o canal estiver configurado
-    notification_channel = bot_config.get("notification_channel_id") or NOTIFICATION_CHANNEL_ID
-    if notification_channel:
-        if not monitoring_badge_task.is_running():
-            monitoring_badge_task.start()
-        if not monitoring_presence_task.is_running():
-            monitoring_presence_task.start()
-        if not monitoring_groups_task.is_running():
-            monitoring_groups_task.start()
-    else:
-        print("⚠️ Canal de notificações não configurado. Monitoramento automático desabilitado.")
+    # Iniciar monitoramento automático 
+    if not monitoring_badge_task.is_running():
+        monitoring_badge_task.start()
+    if not monitoring_presence_task.is_running():
+        monitoring_presence_task.start()
+    if not monitoring_groups_task.is_running():
+        monitoring_groups_task.start()
+        
+    print("✅ Monitoramento automático iniciado para todos os servidores!")
     
     # Sincronizar slash commands
     try:
         synced = await bot.tree.sync()
-        print(f'Sincronizados {len(synced)} comando(s) slash')
+        print(f"✅ {len(synced)} slash commands sincronizados")
     except Exception as e:
-        print(f'Erro ao sincronizar comandos: {e}')
+        print(f"❌ Erro ao sincronizar commands: {e}")
 
 # ====== COMANDOS SLASH ======
 
-@bot.tree.command(name="track", description="Adiciona um usuário à lista de monitoramento")
+@bot.tree.command(name="monitorarmembros", description="Adiciona um usuário à lista de monitoramento individual deste servidor")
 @discord.app_commands.describe(username="Nome do usuário do Roblox para monitorar")
-async def track_user(interaction: discord.Interaction, username: str):
-    """Comando /track - Adiciona usuário à lista de monitoramento"""
+async def monitor_user(interaction: discord.Interaction, username: str):
+    """Comando /monitorarmembros - Adiciona usuário à lista de monitoramento individual do servidor"""
     
     # Verificar autorização
     if not is_authorized(interaction.user.id):
@@ -200,176 +174,61 @@ async def track_user(interaction: discord.Interaction, username: str):
             "❌ Você não tem permissão para usar este comando!", ephemeral=True
         )
         return
+        
+    # Verificar se está em um servidor
+    if not interaction.guild:
+        await interaction.response.send_message(
+            "❌ Este comando só pode ser usado em servidores Discord!", ephemeral=True
+        )
+        return
     
     await interaction.response.defer()
     
     try:
-        # Buscar ID do usuário Roblox
-        roblox_id = await find_roblox_user_by_name(username)
-        if not roblox_id or not isinstance(roblox_id, int):
+        # Obter informações do usuário usando execução assíncrona
+        user_info, success, error = await asyncio.to_thread(get_user_info_by_username, username)
+        if not success or not user_info:
+            await interaction.followup.send(f"❌ Usuário '{username}' não encontrado no Roblox: {error}")
+            return
+        
+        user_id = user_info.get('id')
+        if not user_id:
+            await interaction.followup.send(f"❌ Não foi possível obter ID do usuário '{username}'")
+            return
+        
+        # Verificar se já está sendo monitorado no servidor
+        guild_users = get_tracked_users(interaction.guild.id)
+        if str(user_id) in guild_users:
             await interaction.followup.send(
-                f"❌ Usuário '{username}' não encontrado no Roblox!"
+                f"⚠️ O usuário **{user_info.get('name')}** já está sendo monitorado neste servidor!"
             )
             return
         
-        # Verificar se já está sendo monitorado
-        if str(roblox_id) in tracked_users:
-            await interaction.followup.send(
-                f"⚠️ O usuário '{username}' já está sendo monitorado!"
-            )
-            return
-        
-        # Adicionar à lista
-        tracked_users[str(roblox_id)] = {
-            "name": username,
+        # Adicionar à lista de usuários monitorados do servidor
+        guild_users[str(user_id)] = {
+            "name": user_info.get('name'),
             "added_by": interaction.user.id,
             "added_at": datetime.now().isoformat()
         }
-        save_tracked_users()
+        save_guild_data()
         
-        await interaction.followup.send(
-            f"✅ Usuário '{username}' (ID: {roblox_id}) adicionado à lista de monitoramento!"
-        )
-        
-    except Exception as e:
-        await interaction.followup.send(f"❌ Erro: {e}")
-
-@bot.tree.command(name="removetrack", description="Remove um usuário da lista de monitoramento")
-@discord.app_commands.describe(username="Nome do usuário do Roblox para remover")
-async def removetrack_user(interaction: discord.Interaction, username: str):
-    """Comando /removetrack - Remove usuário da lista de monitoramento"""
-    
-    # Verificar autorização
-    if not is_authorized(interaction.user.id):
-        await interaction.response.send_message(
-            "❌ Você não tem permissão para usar este comando!", ephemeral=True
-        )
-        return
-    
-    await interaction.response.defer()
-    
-    try:
-        # Buscar usuário na lista de monitorados
-        user_found = None
-        for roblox_id, user_data in tracked_users.items():
-            if user_data["name"].lower() == username.lower():
-                user_found = roblox_id
-                break
-        
-        if not user_found:
-            await interaction.followup.send(
-                f"❌ Usuário '{username}' não está na lista de monitoramento!"
-            )
-            return
-        
-        # Remover da lista
-        removed_user = tracked_users.pop(user_found)
-        save_tracked_users()
-        
-        await interaction.followup.send(
-            f"✅ Usuário '{username}' removido da lista de monitoramento!"
-        )
-        
-    except Exception as e:
-        await interaction.followup.send(f"❌ Erro: {e}")
-
-@bot.tree.command(name="view", description="Mostra informações sobre um usuário monitorado")
-@discord.app_commands.describe(username="Nome do usuário do Roblox para visualizar")
-async def view_user(interaction: discord.Interaction, username: str):
-    """Comando /view - Mostra última badge e informações do usuário"""
-    
-    # Verificar autorização
-    if not is_authorized(interaction.user.id):
-        await interaction.response.send_message(
-            "❌ Você não tem permissão para usar este comando!", ephemeral=True
-        )
-        return
-    
-    await interaction.response.defer()
-    
-    try:
-        # Buscar usuário na lista de monitorados
-        user_found = None
-        roblox_id = None
-        for rid, user_data in tracked_users.items():
-            if user_data["name"].lower() == username.lower():
-                user_found = user_data
-                roblox_id = int(rid)
-                break
-        
-        if not user_found:
-            await interaction.followup.send(
-                f"❌ Usuário '{username}' não está na lista de monitoramento!"
-            )
-            return
-        
-        # Garantir que roblox_id é válido
-        if not isinstance(roblox_id, int):
-            await interaction.followup.send(f"❌ ID do usuário inválido: {roblox_id}")
-            return
-            
-        # Obter informações do usuário
-        user_info, success, error = get_user_info_robust(roblox_id)
-        if not success:
-            await interaction.followup.send(f"❌ Erro ao obter informações: {error}")
-            return
-        
-        # Obter badges do usuário
-        badges, success, error = get_user_badges_robust(roblox_id)
-        if not success:
-            await interaction.followup.send(f"❌ Erro ao obter badges: {error}")
-            return
-        
-        # Obter avatar
-        avatar_url, _, _ = get_user_avatar_robust(roblox_id)
-        
-        # Criar embed
-        display_name = user_info.get('displayName', username) if user_info and isinstance(user_info, dict) else username
         embed = discord.Embed(
-            title=f"📊 Informações de {display_name}",
-            color=0x00B4D8
+            title="✅ Usuário Adicionado ao Monitoramento",
+            color=COLORS["success"]
         )
-        
-        # Adicionar informações básicas
-        embed.add_field(name="👤 Nome", value=display_name, inline=True)
-        embed.add_field(name="🆔 ID Roblox", value=str(roblox_id), inline=True)
-        embed.add_field(name="🏆 Total de Badges", value=str(len(badges)), inline=True)
-        
-        # Última badge (mais recente)
-        if badges:
-            latest_badge = badges[0]  # Badges vêm ordenadas por data (desc)
-            badge_info, _, _ = get_badge_info_robust(latest_badge['id'])
-            if badge_info:
-                badge_date = latest_badge.get('created', 'Data desconhecida')
-                embed.add_field(
-                    name="🏆 Última Badge", 
-                    value=f"**{badge_info.get('displayName', 'Badge Desconhecida')}**\n"
-                          f"📅 {badge_date[:10] if len(badge_date) > 10 else badge_date}", 
-                    inline=False
-                )
-        else:
-            embed.add_field(name="🏆 Última Badge", value="Nenhuma badge encontrada", inline=False)
-        
-        # Informações de monitoramento
-        embed.add_field(
-            name="📋 Monitoramento",
-            value=f"Adicionado em: {user_found.get('added_at', 'N/A')[:10]}",
-            inline=False
-        )
-        
-        if avatar_url:
-            embed.set_thumbnail(url=avatar_url)
-        
-        embed.set_footer(text=f"Solicitado por {interaction.user.display_name}")
+        embed.add_field(name="👤 Usuário", value=user_info.get('name'), inline=True)
+        embed.add_field(name="🆔 ID", value=str(user_id), inline=True)
+        embed.add_field(name="📊 Total monitorados neste servidor", value=str(len(guild_users)), inline=True)
         
         await interaction.followup.send(embed=embed)
         
     except Exception as e:
         await interaction.followup.send(f"❌ Erro: {e}")
 
-@bot.tree.command(name="list", description="Lista todos os usuários monitorados")
-async def list_tracked(interaction: discord.Interaction):
-    """Comando /list - Lista usuários monitorados"""
+@bot.tree.command(name="removermembro", description="Remove um usuário da lista de monitoramento individual deste servidor")
+@discord.app_commands.describe(username="Nome do usuário do Roblox para remover")
+async def remove_user(interaction: discord.Interaction, username: str):
+    """Comando /removermembro - Remove usuário da lista de monitoramento individual do servidor"""
     
     # Verificar autorização
     if not is_authorized(interaction.user.id):
@@ -377,21 +236,86 @@ async def list_tracked(interaction: discord.Interaction):
             "❌ Você não tem permissão para usar este comando!", ephemeral=True
         )
         return
+        
+    # Verificar se está em um servidor
+    if not interaction.guild:
+        await interaction.response.send_message(
+            "❌ Este comando só pode ser usado em servidores Discord!", ephemeral=True
+        )
+        return
     
-    if not tracked_users:
-        await interaction.response.send_message("📋 Nenhum usuário está sendo monitorado.")
+    await interaction.response.defer()
+    
+    try:
+        # Obter informações do usuário
+        user_info, success, error = await asyncio.to_thread(get_user_info_by_username, username)
+        if not success or not user_info:
+            await interaction.followup.send(f"❌ Usuário '{username}' não encontrado no Roblox: {error}")
+            return
+        
+        user_id = user_info.get('id')
+        guild_users = get_tracked_users(interaction.guild.id)
+        
+        if str(user_id) not in guild_users:
+            await interaction.followup.send(
+                f"⚠️ O usuário **{user_info.get('name')}** não estava sendo monitorado neste servidor!"
+            )
+            return
+        
+        # Remover da lista
+        del guild_users[str(user_id)]
+        save_guild_data()
+        
+        embed = discord.Embed(
+            title="✅ Usuário Removido do Monitoramento",
+            color=COLORS["warning"]
+        )
+        embed.add_field(name="👤 Usuário", value=user_info.get('name'), inline=True)
+        embed.add_field(name="🆔 ID", value=str(user_id), inline=True)
+        embed.add_field(name="📊 Total monitorados neste servidor", value=str(len(guild_users)), inline=True)
+        
+        await interaction.followup.send(embed=embed)
+        
+    except Exception as e:
+        await interaction.followup.send(f"❌ Erro: {e}")
+
+@bot.tree.command(name="list", description="Lista todos os usuários monitorados neste servidor")
+async def list_tracked(interaction: discord.Interaction):
+    """Comando /list - Lista usuários monitorados no servidor"""
+    
+    # Verificar autorização
+    if not is_authorized(interaction.user.id):
+        await interaction.response.send_message(
+            "❌ Você não tem permissão para usar este comando!", ephemeral=True
+        )
+        return
+        
+    # Verificar se está em um servidor
+    if not interaction.guild:
+        await interaction.response.send_message(
+            "❌ Este comando só pode ser usado em servidores Discord!", ephemeral=True
+        )
+        return
+    
+    guild_users = get_tracked_users(interaction.guild.id)
+    
+    if not guild_users:
+        await interaction.response.send_message(
+            f"📋 Nenhum usuário está sendo monitorado neste servidor.\n"
+            f"Use `/monitorarmembros <username>` para adicionar usuários."
+        )
         return
     
     embed = discord.Embed(
         title="📋 Usuários Monitorados",
-        color=0x00B4D8,
-        description=f"Total: {len(tracked_users)} usuário(s)"
+        color=COLORS["info"],
+        description=f"**Servidor:** {interaction.guild.name}\n**Total:** {len(guild_users)} usuário(s)"
     )
     
-    for roblox_id, user_data in tracked_users.items():
+    for roblox_id, user_data in guild_users.items():
         embed.add_field(
             name=f"👤 {user_data['name']}",
-            value=f"ID: {roblox_id}\nAdicionado em: {user_data.get('added_at', 'N/A')[:10]}",
+            value=f"ID: {roblox_id}\nAdicionado: {user_data.get('added_at', 'N/A')[:10]}",
             inline=True
         )
     
@@ -400,12 +324,19 @@ async def list_tracked(interaction: discord.Interaction):
 @bot.tree.command(name="setchannel", description="Define o canal onde o bot enviará notificações")
 @discord.app_commands.describe(channel="Canal onde as notificações serão enviadas")
 async def set_channel(interaction: discord.Interaction, channel: discord.TextChannel):
-    """Comando /setchannel - Define canal de notificações"""
+    """Comando /setchannel - Define canal de notificações para o servidor"""
     
     # Verificar autorização
     if not is_authorized(interaction.user.id):
         await interaction.response.send_message(
             "❌ Você não tem permissão para usar este comando!", ephemeral=True
+        )
+        return
+        
+    # Verificar se está em um servidor
+    if not interaction.guild:
+        await interaction.response.send_message(
+            "❌ Este comando só pode ser usado em servidores Discord!", ephemeral=True
         )
         return
     
@@ -417,30 +348,28 @@ async def set_channel(interaction: discord.Interaction, channel: discord.TextCha
             )
             return
         
-        # Salvar configuração
-        bot_config["notification_channel_id"] = channel.id
-        save_bot_config()
+        # Salvar configuração para este servidor
+        config = get_guild_config(interaction.guild.id)
+        config["notification_channel_id"] = channel.id
+        save_guild_data()
         
-        await interaction.response.send_message(
-            f"✅ Canal de notificações configurado para {channel.mention}!\n"
-            f"📊 Agora receberei notificações de badges e presença neste canal."
+        embed = discord.Embed(
+            title="✅ Canal Configurado",
+            color=COLORS["success"]
         )
+        embed.add_field(name="📢 Canal", value=channel.mention, inline=True)
+        embed.add_field(name="🏠 Servidor", value=interaction.guild.name, inline=True)
+        embed.description = "Agora receberei notificações de badges e presença neste canal."
         
-        # Reiniciar monitoramento se não estava ativo
-        if not monitoring_badge_task.is_running():
-            monitoring_badge_task.start()
-        if not monitoring_presence_task.is_running():
-            monitoring_presence_task.start()
-        if not monitoring_groups_task.is_running():
-            monitoring_groups_task.start()
-            
+        await interaction.response.send_message(embed=embed)
+        
     except Exception as e:
         await interaction.response.send_message(f"❌ Erro: {e}")
 
-@bot.tree.command(name="adicionargrupo", description="Adiciona um grupo do Roblox para monitoramento")
+@bot.tree.command(name="adicionargrupo", description="Adiciona um grupo do Roblox para monitorar mudanças de membros")
 @discord.app_commands.describe(group_id="ID do grupo do Roblox para monitorar")
 async def add_group(interaction: discord.Interaction, group_id: int):
-    """Comando /adicionargrupo - Adiciona grupo ao monitoramento"""
+    """Comando /adicionargrupo - Adiciona grupo ao monitoramento de membros"""
     
     # Verificar autorização
     if not is_authorized(interaction.user.id):
@@ -448,14 +377,23 @@ async def add_group(interaction: discord.Interaction, group_id: int):
             "❌ Você não tem permissão para usar este comando!", ephemeral=True
         )
         return
+        
+    # Verificar se está em um servidor
+    if not interaction.guild:
+        await interaction.response.send_message(
+            "❌ Este comando só pode ser usado em servidores Discord!", ephemeral=True
+        )
+        return
     
     await interaction.response.defer()
     
     try:
+        guild_groups = get_tracked_groups(interaction.guild.id)
+        
         # Verificar se já está sendo monitorado
-        if str(group_id) in tracked_groups:
+        if str(group_id) in guild_groups:
             await interaction.followup.send(
-                f"⚠️ O grupo ID {group_id} já está sendo monitorado!"
+                f"⚠️ O grupo ID {group_id} já está sendo monitorado neste servidor!"
             )
             return
         
@@ -466,13 +404,13 @@ async def add_group(interaction: discord.Interaction, group_id: int):
             return
         
         # Adicionar à lista de grupos monitorados
-        tracked_groups[str(group_id)] = {
+        guild_groups[str(group_id)] = {
             "name": group_info.get('name', f'Grupo {group_id}'),
             "member_count": group_info.get('memberCount', 0),
             "added_by": interaction.user.id,
             "added_at": datetime.now().isoformat()
         }
-        save_tracked_groups()
+        save_guild_data()
         
         embed = discord.Embed(
             title="✅ Grupo Adicionado ao Monitoramento",
@@ -481,22 +419,29 @@ async def add_group(interaction: discord.Interaction, group_id: int):
         embed.add_field(name="📋 Nome", value=group_info.get('name'), inline=True)
         embed.add_field(name="🆔 ID", value=str(group_id), inline=True)
         embed.add_field(name="👥 Membros", value=str(group_info.get('memberCount', 0)), inline=True)
-        embed.add_field(name="📝 Descrição", value=group_info.get('description', 'Sem descrição')[:100], inline=False)
+        embed.add_field(name="🏠 Servidor", value=interaction.guild.name, inline=False)
         
         await interaction.followup.send(embed=embed)
         
     except Exception as e:
         await interaction.followup.send(f"❌ Erro: {e}")
 
-@bot.tree.command(name="adicionarmembros", description="Adiciona todos os membros de um grupo à lista de monitoramento")
-@discord.app_commands.describe(group_id="ID do grupo do Roblox", limit="Limite de membros para adicionar (padrão: 100)")
-async def add_group_members(interaction: discord.Interaction, group_id: int, limit: int = 100):
-    """Comando /adicionarmembros - Adiciona membros do grupo à lista"""
+@bot.tree.command(name="adicionarmembrosgrupo", description="Adiciona membros de um grupo à lista de monitoramento individual")
+@discord.app_commands.describe(group_id="ID do grupo do Roblox", limit="Limite de membros (padrão: 100, máximo: 500)")
+async def add_group_members_to_monitoring(interaction: discord.Interaction, group_id: int, limit: int = 100):
+    """Comando /adicionarmembrosgrupo - Adiciona membros do grupo à lista de usuários monitorados individualmente"""
     
     # Verificar autorização
     if not is_authorized(interaction.user.id):
         await interaction.response.send_message(
             "❌ Você não tem permissão para usar este comando!", ephemeral=True
+        )
+        return
+        
+    # Verificar se está em um servidor
+    if not interaction.guild:
+        await interaction.response.send_message(
+            "❌ Este comando só pode ser usado em servidores Discord!", ephemeral=True
         )
         return
     
@@ -524,6 +469,7 @@ async def add_group_members(interaction: discord.Interaction, group_id: int, lim
             return
         
         # Adicionar membros à lista de usuários monitorados
+        guild_users = get_tracked_users(interaction.guild.id)
         added_count = 0
         already_tracked = 0
         
@@ -534,8 +480,8 @@ async def add_group_members(interaction: discord.Interaction, group_id: int, lim
             if not user_id or not username:
                 continue
             
-            if str(user_id) not in tracked_users:
-                tracked_users[str(user_id)] = {
+            if str(user_id) not in guild_users:
+                guild_users[str(user_id)] = {
                     "name": username,
                     "added_by": interaction.user.id,
                     "added_at": datetime.now().isoformat(),
@@ -546,14 +492,14 @@ async def add_group_members(interaction: discord.Interaction, group_id: int, lim
             else:
                 already_tracked += 1
         
-        save_tracked_users()
+        save_guild_data()
         
         embed = discord.Embed(
-            title="✅ Membros do Grupo Adicionados",
+            title="✅ Membros Adicionados ao Monitoramento Individual",
             color=COLORS["success"]
         )
         embed.add_field(name="📋 Grupo", value=group_info.get('name'), inline=True)
-        embed.add_field(name="🆔 ID do Grupo", value=str(group_id), inline=True)
+        embed.add_field(name="🏠 Servidor", value=interaction.guild.name, inline=True)
         embed.add_field(name="➕ Adicionados", value=str(added_count), inline=True)
         embed.add_field(name="⚠️ Já Monitorados", value=str(already_tracked), inline=True)
         embed.add_field(name="📊 Total Analisados", value=str(len(members)), inline=True)
@@ -563,9 +509,9 @@ async def add_group_members(interaction: discord.Interaction, group_id: int, lim
     except Exception as e:
         await interaction.followup.send(f"❌ Erro: {e}")
 
-@bot.tree.command(name="grupos", description="Lista todos os grupos monitorados")
+@bot.tree.command(name="grupos", description="Lista todos os grupos monitorados neste servidor")
 async def list_groups(interaction: discord.Interaction):
-    """Comando /grupos - Lista grupos monitorados"""
+    """Comando /grupos - Lista grupos monitorados no servidor"""
     
     # Verificar autorização
     if not is_authorized(interaction.user.id):
@@ -573,21 +519,33 @@ async def list_groups(interaction: discord.Interaction):
             "❌ Você não tem permissão para usar este comando!", ephemeral=True
         )
         return
+        
+    # Verificar se está em um servidor
+    if not interaction.guild:
+        await interaction.response.send_message(
+            "❌ Este comando só pode ser usado em servidores Discord!", ephemeral=True
+        )
+        return
     
-    if not tracked_groups:
-        await interaction.response.send_message("📋 Nenhum grupo está sendo monitorado.")
+    guild_groups = get_tracked_groups(interaction.guild.id)
+    
+    if not guild_groups:
+        await interaction.response.send_message(
+            f"📋 Nenhum grupo está sendo monitorado neste servidor.\n"
+            f"Use `/adicionargrupo <id>` para adicionar grupos."
+        )
         return
     
     embed = discord.Embed(
         title="📋 Grupos Monitorados",
         color=COLORS["info"],
-        description=f"Total: {len(tracked_groups)} grupo(s)"
+        description=f"**Servidor:** {interaction.guild.name}\n**Total:** {len(guild_groups)} grupo(s)"
     )
     
-    for group_id, group_data in tracked_groups.items():
+    for group_id, group_data in guild_groups.items():
         embed.add_field(
             name=f"👥 {group_data['name']}",
-            value=f"ID: {group_id}\nMembros: {group_data.get('member_count', 'N/A')}\nAdicionado em: {group_data.get('added_at', 'N/A')[:10]}",
+            value=f"ID: {group_id}\nMembros: {group_data.get('member_count', 'N/A')}\nAdicionado: {group_data.get('added_at', 'N/A')[:10]}",
             inline=True
         )
     
@@ -597,60 +555,69 @@ async def list_groups(interaction: discord.Interaction):
 
 @tasks.loop(seconds=CHECK_INTERVAL)
 async def monitoring_badge_task():
-    """Task de monitoramento de badges"""
-    if not tracked_users:
-        return
-    
+    """Task de monitoramento de badges para todos os servidores"""
     try:
         with monitoring_lock:
             known_badges = load_known_badges()
             
-            for roblox_id_str, user_data in tracked_users.items():
-                roblox_id = int(roblox_id_str)
-                username = user_data['name']
-                
-                # Obter badges atuais
-                current_badges, success, error = get_user_badges_robust(roblox_id)
-                if not success:
+            # Iterar através de todos os servidores
+            for guild_id, guild_info in guild_data.items():
+                guild_users = guild_info.get("tracked_users", {})
+                if not guild_users:
+                    continue
+                    
+                # Verificar canal de notificações
+                channel = get_notification_channel(int(guild_id))
+                if not channel:
                     continue
                 
-                current_badge_ids = set(badge['id'] for badge in current_badges)
-                user_known_badges = set(known_badges.get(roblox_id_str, []))
-                new_badge_ids = current_badge_ids - user_known_badges
-                
-                if new_badge_ids:
-                    # Obter canal de notificações configurado
-                    notification_channel_id = bot_config.get("notification_channel_id") or NOTIFICATION_CHANNEL_ID
-                    if notification_channel_id:
-                        channel = bot.get_channel(notification_channel_id)
-                        if channel and isinstance(channel, (discord.TextChannel, discord.Thread)):
-                            # Obter info do usuário usando execução assíncrona
-                            try:
-                                user_info, _, _ = await asyncio.to_thread(get_user_info_robust, roblox_id)
-                                avatar_url, _, _ = await asyncio.to_thread(get_user_avatar_robust, roblox_id)
+                for roblox_id_str, user_data in guild_users.items():
+                    try:
+                        roblox_id = int(roblox_id_str)
+                        
+                        # Obter badges atuais do usuário
+                        current_badges, success, _ = await asyncio.to_thread(get_user_badges_robust, roblox_id)
+                        if not success or not current_badges:
+                            continue
+                        
+                        # Comparar com badges conhecidas
+                        current_badge_ids = set(badge['id'] for badge in current_badges)
+                        user_known_badges = set(known_badges.get(roblox_id_str, []))
+                        new_badge_ids = current_badge_ids - user_known_badges
+                        
+                        if new_badge_ids:
+                            # Obter info do usuário
+                            user_info, _, _ = await asyncio.to_thread(get_user_info_robust, int(roblox_id))
+                            avatar_url, _, _ = await asyncio.to_thread(get_user_avatar_robust, int(roblox_id))
                             
                             for badge_id in new_badge_ids:
                                 badge_info, success, _ = await asyncio.to_thread(get_badge_info_robust, badge_id)
-                            if success and badge_info:
-                                embed = discord.Embed(
-                                    title="🏆 Nova Badge Conquistada!",
-                                    color=0x00FF00,
-                                    timestamp=datetime.utcnow()
-                                )
-                                embed.add_field(name="🏆 Badge", value=badge_info.get('displayName'), inline=True)
-                                embed.add_field(name="👤 Usuário", value=username, inline=True)
-                                embed.add_field(name="🔗 Link", value=f"[Ver Badge](https://www.roblox.com/badges/{badge_id})", inline=True)
-                                
-                                if badge_info.get('description'):
-                                    embed.description = badge_info['description']
-                                if avatar_url:
-                                    embed.set_thumbnail(url=avatar_url)
-                                
-                                await channel.send(embed=embed)
-                
-                # Atualizar badges conhecidas
-                known_badges[roblox_id_str] = list(current_badge_ids)
+                                if success and badge_info:
+                                    embed = discord.Embed(
+                                        title="🏆 Nova Badge Conquistada!",
+                                        color=COLORS["badge"],
+                                        timestamp=datetime.utcnow()
+                                    )
+                                    embed.add_field(name="👤 Usuário", value=user_data['name'], inline=True)
+                                    embed.add_field(name="🏆 Badge", value=badge_info.get('name', 'Badge Desconhecida'), inline=True)
+                                    embed.add_field(name="🏠 Servidor", value=channel.guild.name, inline=True)
+                                    
+                                    if badge_info.get('description'):
+                                        embed.add_field(name="📝 Descrição", value=badge_info['description'][:100], inline=False)
+                                    
+                                    if avatar_url:
+                                        embed.set_thumbnail(url=avatar_url)
+                                    
+                                    await channel.send(embed=embed)
+                                    await asyncio.sleep(1)  # Delay entre notificações
+                        
+                        # Atualizar badges conhecidas
+                        known_badges[roblox_id_str] = list(current_badge_ids)
+                        
+                    except (ValueError, TypeError):
+                        continue
             
+            # Salvar badges conhecidas
             save_known_badges(known_badges)
             
     except Exception as e:
@@ -658,60 +625,85 @@ async def monitoring_badge_task():
 
 @tasks.loop(seconds=CHECK_INTERVAL)
 async def monitoring_presence_task():
-    """Task de monitoramento de presença"""
-    if not tracked_users:
-        return
-    
+    """Task de monitoramento de presença para todos os servidores"""
     try:
         with monitoring_lock:
             last_presence = load_last_presence()
-            user_ids = [int(uid) for uid in tracked_users.keys()]
             
-            # Obter presença atual
-            presences, success, error = get_users_presence_robust(user_ids)
-            if not success:
+            # Coletar todos os usuários únicos de todos os servidores
+            all_user_ids = set()
+            guild_user_map = {}  # {user_id: [guild_ids]}
+            
+            for guild_id, guild_info in guild_data.items():
+                guild_users = guild_info.get("tracked_users", {})
+                for user_id in guild_users.keys():
+                    all_user_ids.add(int(user_id))
+                    if user_id not in guild_user_map:
+                        guild_user_map[user_id] = []
+                    guild_user_map[user_id].append(guild_id)
+            
+            if not all_user_ids:
                 return
             
-            for presence in presences:
+            # Obter presença de todos os usuários de uma vez
+            presence_data, success, _ = await asyncio.to_thread(get_users_presence_robust, list(all_user_ids))
+            if not success or not presence_data:
+                return
+            
+            # Processar mudanças de presença
+            for presence in presence_data.get('userPresences', []):
                 user_id = presence.get('userId')
+                if not user_id:
+                    continue
+                
                 current_status = presence.get('userPresenceType', 0)
                 last_status = last_presence.get(str(user_id), 0)
                 
                 # Verificar mudança de Offline para Online/Jogo/Studio
-                if last_status == 0 and current_status > 0 and NOTIFICATION_CHANNEL_ID:
-                    channel = bot.get_channel(NOTIFICATION_CHANNEL_ID)
-                    if channel and hasattr(channel, 'send'):
-                        user_data = tracked_users.get(str(user_id))
-                        if user_data and user_id:
-                            user_info, _, _ = get_user_info_robust(user_id)
-                            avatar_url, _, _ = get_user_avatar_robust(user_id)
+                if last_status == 0 and current_status > 0:
+                    # Notificar em todos os servidores que monitoram este usuário
+                    for guild_id in guild_user_map.get(str(user_id), []):
+                        try:
+                            channel = get_notification_channel(int(guild_id))
+                            if not channel:
+                                continue
+                                
+                            guild_users = get_tracked_users(int(guild_id))
+                            user_data = guild_users.get(str(user_id))
+                            if not user_data:
+                                continue
                             
-                            # Definir cor baseada no status
-                            colors = {1: 0x00FF00, 2: 0x0099FF, 3: 0xFF9900}
-                            color = colors.get(current_status, 0x00FF00)
+                            # Obter avatar do usuário
+                            avatar_url, _, _ = await asyncio.to_thread(get_user_avatar_robust, int(user_id))
+                            
+                            color = COLORS["online"] if current_status == 1 else COLORS["gaming"]
                             
                             embed = discord.Embed(
-                                title="📶 Mudança de Status!",
+                                title="📶 Usuário Online!",
                                 color=color,
                                 timestamp=datetime.utcnow()
                             )
                             embed.add_field(name="👤 Usuário", value=user_data['name'], inline=True)
                             embed.add_field(name="📶 Status", value=presence_type_to_text(current_status), inline=True)
+                            embed.add_field(name="🏠 Servidor", value=channel.guild.name, inline=True)
                             
                             # Adicionar jogo se estiver jogando
                             place_id = presence.get('placeId')
                             if current_status == 2 and place_id:
                                 try:
-                                    place_info, success, _ = get_place_info_robust(int(place_id))
+                                    place_info, success, _ = await asyncio.to_thread(get_place_info_robust, int(place_id))
                                     if success and place_info:
                                         embed.add_field(name="🎮 Jogo", value=place_info.get('name', 'Jogo Desconhecido'), inline=True)
                                 except (ValueError, TypeError):
-                                    pass  # Se place_id não for válido, ignora
+                                    pass
                             
                             if avatar_url:
                                 embed.set_thumbnail(url=avatar_url)
                             
                             await channel.send(embed=embed)
+                            
+                        except Exception as e:
+                            print(f"Erro ao notificar presença no servidor {guild_id}: {e}")
                 
                 # Atualizar último status conhecido
                 last_presence[str(user_id)] = current_status
@@ -723,68 +715,66 @@ async def monitoring_presence_task():
 
 @tasks.loop(seconds=CHECK_INTERVAL * 3)  # Grupos são verificados com menos frequência
 async def monitoring_groups_task():
-    """Task de monitoramento de grupos"""
-    if not tracked_groups:
-        return
-    
+    """Task de monitoramento de grupos para todos os servidores"""
     try:
         with monitoring_lock:
-            # Obter canal de notificações
-            notification_channel_id = bot_config.get("notification_channel_id") or NOTIFICATION_CHANNEL_ID
-            if not notification_channel_id:
-                return
-            
-            channel = bot.get_channel(notification_channel_id)
-            if not channel or not isinstance(channel, (discord.TextChannel, discord.Thread)):
-                return
-            
-            for group_id_str, group_data in tracked_groups.items():
-                try:
-                    group_id = int(group_id_str)
-                    old_member_count = group_data.get('member_count', 0)
-                    
-                    # Obter informações atuais do grupo
-                    group_info, success, error = await asyncio.to_thread(get_group_info_robust, group_id)
-                    if not success:
-                        continue
-                    
-                    current_member_count = group_info.get('memberCount', 0)
-                    
-                    # Verificar mudança na quantidade de membros
-                    if current_member_count != old_member_count:
-                        # Atualizar dados do grupo
-                        tracked_groups[group_id_str]['member_count'] = current_member_count
-                        
-                        # Determinar se aumentou ou diminuiu
-                        if current_member_count > old_member_count:
-                            change_text = f"📈 +{current_member_count - old_member_count} novos membros"
-                            color = COLORS["success"]
-                        else:
-                            change_text = f"📉 -{old_member_count - current_member_count} membros saíram"
-                            color = COLORS["warning"]
-                        
-                        embed = discord.Embed(
-                            title="👥 Mudança na Quantidade de Membros",
-                            color=color,
-                            timestamp=datetime.utcnow()
-                        )
-                        embed.add_field(name="📋 Grupo", value=group_data['name'], inline=True)
-                        embed.add_field(name="🆔 ID", value=group_id_str, inline=True)
-                        embed.add_field(name="📊 Mudança", value=change_text, inline=True)
-                        embed.add_field(name="👥 Antes", value=str(old_member_count), inline=True)
-                        embed.add_field(name="👥 Agora", value=str(current_member_count), inline=True)
-                        
-                        await channel.send(embed=embed)
-                        
-                        # Pequeno delay entre notificações
-                        await asyncio.sleep(1)
-                        
-                except (ValueError, TypeError) as e:
-                    print(f"Erro ao processar grupo {group_id_str}: {e}")
+            # Iterar através de todos os servidores
+            for guild_id, guild_info in guild_data.items():
+                guild_groups = guild_info.get("tracked_groups", {})
+                if not guild_groups:
                     continue
+                    
+                # Verificar canal de notificações
+                channel = get_notification_channel(int(guild_id))
+                if not channel:
+                    continue
+                
+                for group_id_str, group_data in guild_groups.items():
+                    try:
+                        group_id = int(group_id_str)
+                        old_member_count = group_data.get('member_count', 0)
+                        
+                        # Obter informações atuais do grupo
+                        group_info, success, error = await asyncio.to_thread(get_group_info_robust, group_id)
+                        if not success:
+                            continue
+                        
+                        current_member_count = group_info.get('memberCount', 0)
+                        
+                        # Verificar mudança na quantidade de membros
+                        if current_member_count != old_member_count:
+                            # Atualizar dados do grupo
+                            group_data['member_count'] = current_member_count
+                            
+                            # Determinar se aumentou ou diminuiu
+                            if current_member_count > old_member_count:
+                                change_text = f"📈 +{current_member_count - old_member_count} novos membros"
+                                color = COLORS["success"]
+                            else:
+                                change_text = f"📉 -{old_member_count - current_member_count} membros saíram"
+                                color = COLORS["warning"]
+                            
+                            embed = discord.Embed(
+                                title="👥 Mudança na Quantidade de Membros",
+                                color=color,
+                                timestamp=datetime.utcnow()
+                            )
+                            embed.add_field(name="📋 Grupo", value=group_data['name'], inline=True)
+                            embed.add_field(name="🆔 ID", value=group_id_str, inline=True)
+                            embed.add_field(name="🏠 Servidor", value=channel.guild.name, inline=True)
+                            embed.add_field(name="📊 Mudança", value=change_text, inline=True)
+                            embed.add_field(name="👥 Antes", value=str(old_member_count), inline=True)
+                            embed.add_field(name="👥 Agora", value=str(current_member_count), inline=True)
+                            
+                            await channel.send(embed=embed)
+                            await asyncio.sleep(1)  # Pequeno delay entre notificações
+                            
+                    except (ValueError, TypeError) as e:
+                        print(f"Erro ao processar grupo {group_id_str} no servidor {guild_id}: {e}")
+                        continue
             
             # Salvar mudanças
-            save_tracked_groups()
+            save_guild_data()
             
     except Exception as e:
         print(f"❌ Erro no monitoramento de grupos: {e}")
@@ -804,7 +794,6 @@ def run_bot(token):
         print(f"❌ Erro inesperado ao executar o bot: {e}")
 
 if __name__ == "__main__":
-    # Você pode definir o token aqui ou usar variável de ambiente
     BOT_TOKEN = os.getenv('DISCORD_BOT_TOKEN')
     if not BOT_TOKEN:
         print("❌ Token do bot não encontrado! Defina a variável DISCORD_BOT_TOKEN")

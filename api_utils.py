@@ -307,6 +307,39 @@ def get_users_presence_robust(user_ids: List[int]) -> Tuple[List[Dict], bool, Op
     except Exception as e:
         return [], False, f"Erro inesperado: {e}"
 
+def get_user_info_by_username(username: str) -> Tuple[Optional[Dict], bool, Optional[str]]:
+    """
+    Versão robusta para obter informações do usuário por username
+    Returns: (user_info, sucesso, erro)
+    """
+    try:
+        # Primeiro converter username para user_id
+        url = "https://users.roblox.com/v1/usernames/users"
+        payload = {
+            "usernames": [username]
+        }
+        
+        success, data, error = api_client.make_request(
+            url, 'users', method='POST', json_data=payload,
+            max_retries=2, timeout=10
+        )
+        
+        if not success:
+            return None, False, error
+        
+        users_data = data.get('data', [])
+        if not users_data:
+            return None, False, f"Usuário '{username}' não encontrado"
+        
+        user_info = users_data[0]  # Primeiro resultado
+        if not user_info:
+            return None, False, f"Usuário '{username}' não encontrado"
+        
+        return user_info, True, None
+        
+    except Exception as e:
+        return None, False, f"Erro inesperado: {e}"
+
 def get_user_info_robust(user_id: int) -> Tuple[Optional[Dict], bool, Optional[str]]:
     """
     Versão robusta para obter informações do usuário
