@@ -161,7 +161,7 @@ def send_system_notification(event_type, message, color=0x00FF00):
                     }
                 ],
                 "footer": {
-                    "text": "Monitor Roblox - Keep Alive System"
+                    "text": "Nouvelle Company Monitor - Keep Alive System"
                 }
             }
             

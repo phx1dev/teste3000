@@ -24,8 +24,11 @@ MONITOR_GROUPS = [
     {
         "name": "Nouvelle",
         "webhook_url": "https://discord.com/api/webhooks/1413656858383880233/v5vplQKyAeU0Uj7x7vgzmevE46e7uqLMH_2U58rZpy8-musK_ZP01It8LY9A5dfvVaYh",
-        "user_ids": [1818113777,3925323630,1559981851,3679768182,1559307226]  # IDs dos usuários do Roblox para este grupo
+        "user_ids": [1818113777,3925323630,1559981851,3679768182,1559307226,1986769914,8270594803,2851548104,749152903,4791299326,2797775875,1482947883,4691802178,860097528,1661528168,673514660]  # IDs dos usuários do Roblox para este grupo
     },
+
+
+    
     {
         "name": "Comunidade Civil",
         "webhook_url": "https://discord.com/api/webhooks/1413663842767994980/gGaGf8szgsSrEQ2OytcSzhODmLu0X5blNcZNAlcWTh6c1z8fO1Ya0ZXEBukUuPDxrgx8",  # Cole aqui a URL do segundo webhook
