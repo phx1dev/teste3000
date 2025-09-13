@@ -9,7 +9,7 @@ Edite este arquivo para configurar o bot de acordo com suas necessidades
 import os
 
 # Bot Configuration (Railway compatible)
-BOT_TOKEN = os.getenv("BOT_TOKEN") or os.getenv("DISCORD_BOT_TOKEN")
+BOT_TOKEN = os.getenv("BOT_TOKEN") or os.getenv("c5fd103dbc31f8afe378a5fdd963d44c08045421c1ad89f03a381e840851758d")
 BOT_OWNER_ID = int(os.getenv("BOT_OWNER_ID", "0")) if os.getenv("BOT_OWNER_ID") else None
 
 # Railway-specific configuration
