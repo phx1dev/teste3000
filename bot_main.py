@@ -34,12 +34,12 @@ def main():
     bot_token = os.getenv('BOT_TOKEN') or os.getenv('DISCORD_BOT_TOKEN')
     if not bot_token:
         print("❌ ERRO: Token do bot não configurado!")
-        print("📝 Configure a variável de ambiente BOT_TOKEN (Render/Railway) ou DISCORD_BOT_TOKEN")
-        print("💡 Exemplo: BOT_TOKEN='seu_token_aqui' (Render)")
+        print("📝 Configure a variável de ambiente BOT_TOKEN ou DISCORD_BOT_TOKEN")
+        print("💡 Exemplo: BOT_TOKEN='seu_token_aqui'")
         print("🔗 Obtenha seu token em: https://discord.com/developers/applications")
         # Não retornar False - deixar o servidor Flask rodando para health checks
         print("⚠️  Mantendo servidor Flask ativo para health checks...")
-        # Manter o processo vivo para o Railway
+        # Manter o processo vivo para health checks
         while True:
             time.sleep(60)
     

@@ -13,12 +13,9 @@ app = Flask(__name__)
 
 # Variáveis globais para controle
 start_time = time.time()
-railway_url = os.getenv('RAILWAY_PUBLIC_DOMAIN')
-render_url = os.getenv('RENDER_EXTERNAL_URL')
 is_render = bool(os.getenv('RENDER'))
 ping_stats = {
-    'local': {'success': 0, 'failure': 0, 'last_ping': None},
-    'external': {'success': 0, 'failure': 0, 'last_ping': None}
+    'local': {'success': 0, 'failure': 0, 'last_ping': None}
 }
 
 @app.route('/')
@@ -47,9 +44,7 @@ def status():
         "uptime_formatted": get_uptime_formatted(),
         "start_time": datetime.fromtimestamp(start_time).isoformat(),
         "current_time": datetime.now().isoformat(),
-        "railway_url": railway_url,
-        "render_url": render_url,
-        "platform": "render" if is_render else "railway" if railway_url else "local",
+        "platform": "render" if is_render else "local",
         "ping_stats": ping_stats,
         "services": {
             "flask_server": "online",
@@ -61,7 +56,7 @@ def status():
 
 @app.route('/health')
 def health():
-    """Endpoint de saúde simples para Railway"""
+    """Endpoint de saúde para Render"""
     return jsonify({
         "status": "healthy", 
         "message": "Discord bot is running",
@@ -100,41 +95,22 @@ def log_system_event(event_type, message):
     print(f"{emoji} [{timestamp}] {event_type.upper()}: {message}")
 
 def detect_public_url():
-    """Detecta automaticamente o URL público (Render/Railway ou outras plataformas)"""
+    """Detecta URL público para Render"""
     global public_url
     
     try:
-        # Render detection (primary for new deployments)
-        render_external_url = os.getenv('RENDER_EXTERNAL_URL')
-        if render_external_url:
-            public_url = render_external_url
-            print(f"🎨 Render URL detectado: {public_url}")
-            return
-        
-        # Railway detection (secondary)
-        railway_domain = os.getenv('RAILWAY_PUBLIC_DOMAIN')
-        if railway_domain:
-            public_url = f"https://{railway_domain}"
-            print(f"🚀 Railway URL detectado: {public_url}")
-            return
-        
-        # Generic cloud platform detection (fallback)
-        repl_slug = os.getenv('REPL_SLUG')
-        repl_owner = os.getenv('REPL_OWNER')
-        if repl_slug and repl_owner:
-            public_url = f"https://{repl_slug}--{repl_owner}.replit.app"
-            print(f"🌐 Plataforma de nuvem detectada: {public_url}")
-            return
-        
-        print("⚠️  URL público não detectado")
+        # Para Render Background Worker, não há URL público
         if is_render:
-            print("   Para Render Background Worker, isso é normal")
-        else:
-            print("   Isso é normal se executando localmente")
+            print("🎨 Render Background Worker: Não há URL público")
+            public_url = None
+            return
+        
+        # Para desenvolvimento local
+        print("🏠 Executando localmente")
         public_url = None
             
     except Exception as e:
-        print(f"❌ Erro ao detectar URL público: {e}")
+        print(f"❌ Erro na detecção: {e}")
         public_url = None
 
 def ping_local():
@@ -154,25 +130,6 @@ def ping_local():
         print(f"❌ Ping local falhou: {e}")
         return False
 
-def ping_external():
-    """Realiza ping externo (URL público)"""
-    if not public_url:
-        print("⚠️  URL público não detectado, pulando ping externo")
-        return False
-    
-    try:
-        response = requests.get(public_url, timeout=15)
-        if response.status_code == 200:
-            ping_stats['external']['success'] += 1
-            ping_stats['external']['last_ping'] = datetime.now().isoformat()
-            print(f"✅ Ping externo realizado com sucesso ({response.status_code})")
-            return True
-        else:
-            raise Exception(f"Status code: {response.status_code}")
-    except Exception as e:
-        ping_stats['external']['failure'] += 1
-        print(f"❌ Ping externo falhou: {e}")
-        return False
 
 def auto_ping_loop():
     """Loop de auto-ping com intervalos aleatórios"""
@@ -186,8 +143,6 @@ def auto_ping_loop():
     # Primeiro ping para teste
     print("🔍 Realizando primeiro ping de teste...")
     ping_local()
-    if public_url:
-        ping_external()
     
     # Loop principal
     ping_count = 1
@@ -203,19 +158,13 @@ def auto_ping_loop():
             current_time = datetime.now().strftime('%H:%M:%S')
             print(f"\n🔄 [PING #{ping_count}] Executando pings... ({current_time})")
             
-            # Realizar pings
+            # Realizar ping local
             local_success = ping_local()
-            external_success = False
-            
-            if public_url:
-                external_success = ping_external()
             
             # Log resumido
             local_total = ping_stats['local']['success'] + ping_stats['local']['failure']
-            external_total = ping_stats['external']['success'] + ping_stats['external']['failure']
             
-            print(f"📊 Stats - Local: {ping_stats['local']['success']}/{local_total} | " +
-                  f"Externo: {ping_stats['external']['success']}/{external_total}")
+            print(f"📊 Stats - Local: {ping_stats['local']['success']}/{local_total}")
             
         except Exception as e:
             print(f"❌ Erro no loop de auto-ping: {e}")
