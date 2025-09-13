@@ -1,0 +1,23 @@
+services:
+  - type: worker
+    name: roblox-discord-bot
+    env: python
+    repo: https://github.com/USERNAME/roblox-discord-bot.git # Substitua pelo seu repo
+    buildCommand: pip install -r requirements.txt
+    startCommand: python bot_main.py
+    plan: free
+    envVars:
+      - key: DISCORD_BOT_TOKEN
+        sync: false
+      - key: BOT_TOKEN
+        sync: false
+      - key: PYTHON_VERSION
+        value: "3.11"
+      - key: DATA_DIR
+        value: "/opt/render/project/src/data"
+      - key: RENDER
+        value: "true"
+    disk:
+      name: roblox-bot-data
+      mountPath: /opt/render/project/src/data
+      sizeGB: 1
