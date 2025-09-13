@@ -5,26 +5,21 @@ Edite este arquivo para configurar o bot de acordo com suas necessidades
 
 # ====== CONFIGURAÇÕES DO BOT ======
 
-# Para Render/Railway, usar variáveis de ambiente
+# Para Render.com, usar variáveis de ambiente
 import os
 import logging
 
-# 🚀 PLATAFORMA DE DEPLOYMENT
-PLATFORM = os.getenv('RENDER', 'local')
-IS_RENDER = bool(os.getenv('RENDER'))
-IS_RAILWAY = os.getenv('RAILWAY_ENVIRONMENT_NAME') == 'production'
-
-# Bot Configuration (Multi-platform compatible)
+# Bot Configuration
 BOT_TOKEN = os.getenv("BOT_TOKEN") or os.getenv("DISCORD_BOT_TOKEN")
 BOT_OWNER_ID = int(os.getenv("BOT_OWNER_ID", "0")) if os.getenv("BOT_OWNER_ID") else None
 
-# Platform-specific configuration
+# Render configuration
 PORT = int(os.getenv("PORT", "5000"))
-RAILWAY_ENVIRONMENT = os.getenv("RAILWAY_ENVIRONMENT_NAME", "development")
 RENDER_SERVICE_NAME = os.getenv("RENDER_SERVICE_NAME", "roblox-discord-bot")
+IS_RENDER = bool(os.getenv('RENDER'))
 
-# Data persistence configuration for Render/Railway
-DATA_DIR = os.getenv("DATA_DIR", ".")  # Render/Railway Volume path or current directory
+# Data persistence configuration for Render
+DATA_DIR = os.getenv("DATA_DIR", ".")  # Render Volume path or current directory
 BADGES_FILE = os.path.join(DATA_DIR, "known_badges.json")
 PRESENCE_FILE = os.path.join(DATA_DIR, "last_presence.json")
 GUILD_DATA_FILE = os.path.join(DATA_DIR, "guild_data.json")
@@ -32,30 +27,18 @@ GUILD_DATA_FILE = os.path.join(DATA_DIR, "guild_data.json")
 # Ensure data directory exists
 if not os.path.exists(DATA_DIR):
     os.makedirs(DATA_DIR, exist_ok=True)
-# Platform URLs
-RAILWAY_PUBLIC_DOMAIN = os.getenv("RAILWAY_PUBLIC_DOMAIN")
-RENDER_EXTERNAL_URL = os.getenv("RENDER_EXTERNAL_URL")
-
 def log_platform_info():
     """Log informações da plataforma de deployment"""
     if IS_RENDER:
         logging.info("🎨 Rodando no Render.com (produção)")
         logging.info(f"📊 Service: {RENDER_SERVICE_NAME}")
-        logging.info("💡 Background Worker: Não dorme como Web Services")
+        logging.info("💡 Background Worker: Execução contínua")
         logging.info("💡 Para mais recursos: Upgrade para Starter plan ($7/mês)")
-        if RENDER_EXTERNAL_URL:
-            logging.info(f"🌐 URL público: {RENDER_EXTERNAL_URL}")
-    elif IS_RAILWAY:
-        logging.info("🚂 Rodando no Railway (produção)")
-        logging.info(f"📊 Environment: {RAILWAY_ENVIRONMENT}")
-        logging.warning("⚠️  AVISO: Armazenamento efêmero - dados podem ser perdidos em restart")
-        if RAILWAY_PUBLIC_DOMAIN:
-            logging.info(f"🌐 URL público: {RAILWAY_PUBLIC_DOMAIN}")
     else:
         logging.info("🏠 Rodando localmente (desenvolvimento)")
         logging.info(f"🌐 Servidor local: http://localhost:{PORT}")
 
-# IDs do Discord autorizados a usar os comandos do bot (via env vars para Railway)
+# IDs do Discord autorizados a usar os comandos do bot
 AUTHORIZED_DISCORD_IDS = []
 auth_ids_str = os.getenv("AUTHORIZED_USER_IDS")
 if auth_ids_str:
@@ -83,8 +66,8 @@ RATE_LIMIT_CONFIG = {
 # Configurações de Backup e Recuperação
 BACKUP_CONFIG = {
     "enable_auto_backup": True,      # Habilitar backup automático
-    "backup_interval_hours": 6 if not IS_RENDER else 12,  # Render: menos frequent backup
-    "max_backup_files": 10 if not IS_RENDER else 5,       # Render: menos arquivos
+    "backup_interval_hours": 12,  # Intervalo de backup em horas
+    "max_backup_files": 5,        # Máximo de arquivos de backup
     "backup_on_critical_error": True, # Backup em caso de erro crítico
     "backup_dir": os.path.join(DATA_DIR, "backups")  # Diretório de backup no DATA_DIR
 }
