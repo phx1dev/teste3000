@@ -8,19 +8,21 @@ Edite este arquivo para configurar o bot de acordo com suas necessidades
 # Para Railway, usar variáveis de ambiente
 import os
 
-# Bot Configuration
-BOT_TOKEN = os.getenv("BOT_TOKEN")
+# Bot Configuration (Railway compatible)
+BOT_TOKEN = os.getenv("BOT_TOKEN") or os.getenv("DISCORD_BOT_TOKEN")
 BOT_OWNER_ID = int(os.getenv("BOT_OWNER_ID", "0")) if os.getenv("BOT_OWNER_ID") else None
 
 # Railway-specific configuration
 PORT = int(os.getenv("PORT", "5000"))
 RAILWAY_ENVIRONMENT = os.getenv("RAILWAY_ENVIRONMENT_NAME", "development")
+RAILWAY_PUBLIC_DOMAIN = os.getenv("RAILWAY_PUBLIC_DOMAIN")
 
 # IDs do Discord autorizados a usar os comandos do bot (via env vars para Railway)
 AUTHORIZED_DISCORD_IDS = []
-if os.getenv("AUTHORIZED_USER_IDS"):
+auth_ids_str = os.getenv("AUTHORIZED_USER_IDS")
+if auth_ids_str:
     try:
-        AUTHORIZED_DISCORD_IDS = [int(x.strip()) for x in os.getenv("AUTHORIZED_USER_IDS").split(",") if x.strip()]
+        AUTHORIZED_DISCORD_IDS = [int(x.strip()) for x in auth_ids_str.split(",") if x.strip()]
     except (ValueError, AttributeError):
         AUTHORIZED_DISCORD_IDS = []
 

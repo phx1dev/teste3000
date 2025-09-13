@@ -15,11 +15,11 @@ def main():
     print("=" * 50)
     
     # Verificar se o token do bot está configurado
-    bot_token = os.getenv('DISCORD_BOT_TOKEN')
+    bot_token = os.getenv('BOT_TOKEN') or os.getenv('DISCORD_BOT_TOKEN')
     if not bot_token:
         print("❌ ERRO: Token do bot não configurado!")
-        print("📝 Configure a variável de ambiente DISCORD_BOT_TOKEN")
-        print("💡 Exemplo: export DISCORD_BOT_TOKEN='seu_token_aqui'")
+        print("📝 Configure a variável de ambiente BOT_TOKEN (Railway) ou DISCORD_BOT_TOKEN")
+        print("💡 Exemplo: BOT_TOKEN='seu_token_aqui' (Railway)")
         print("🔗 Obtenha seu token em: https://discord.com/developers/applications")
         return False
     

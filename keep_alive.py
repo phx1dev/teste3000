@@ -13,48 +13,24 @@ app = Flask(__name__)
 
 # Variáveis globais para controle
 start_time = time.time()
-replit_url = None
-monitor_groups = []  # Será carregado do main.py
+railway_url = os.getenv('RAILWAY_PUBLIC_DOMAIN')
 ping_stats = {
     'local': {'success': 0, 'failure': 0, 'last_ping': None},
     'external': {'success': 0, 'failure': 0, 'last_ping': None}
 }
-
-# Função para importar configurações do main.py
-def load_monitor_groups():
-    """Carrega os grupos de monitoramento do main.py"""
-    global monitor_groups
-    try:
-        # Importar dinamicamente para evitar import circular
-        if os.path.exists('main.py'):
-            import importlib.util
-            spec = importlib.util.spec_from_file_location("main_config", "main.py")
-            if spec and spec.loader:
-                main_module = importlib.util.module_from_spec(spec)
-                spec.loader.exec_module(main_module)
-                if hasattr(main_module, 'MONITOR_GROUPS'):
-                    monitor_groups = main_module.MONITOR_GROUPS
-                    print(f"✅ Carregados {len(monitor_groups)} grupos para notificações de sistema")
-                else:
-                    print("⚠️  MONITOR_GROUPS não encontrado no main.py")
-            else:
-                print("⚠️  Não foi possível carregar especificação do main.py")
-        else:
-            print("⚠️  main.py não encontrado")
-    except Exception as e:
-        print(f"❌ Erro ao carregar configurações do main.py: {e}")
 
 @app.route('/')
 def home():
     """Endpoint principal - indica que o bot está ativo"""
     uptime = get_uptime_formatted()
     return f"""
-    🤖 Bot de Monitoramento Roblox Ativo! 🏆📶
+    🤖 Discord Bot - Roblox Monitor Ativo! 🏆📶
     
     ⏰ Uptime: {uptime}
-    🌐 Keep-Alive: Ativo
-    🏆 Monitor Badges: Rodando
-    📶 Monitor Presença: Rodando
+    🌐 Keep-Alive: Ativo  
+    🤖 Discord Bot: Online
+    🏆 Monitor Badges: Ativo
+    📶 Monitor Presença: Ativo
     """
 
 @app.route('/status')
@@ -69,38 +45,25 @@ def status():
         "uptime_formatted": get_uptime_formatted(),
         "start_time": datetime.fromtimestamp(start_time).isoformat(),
         "current_time": datetime.now().isoformat(),
-        "replit_url": replit_url,
+        "railway_url": railway_url,
         "ping_stats": ping_stats,
         "services": {
             "flask_server": "online",
-            "badge_monitor": "running",
-            "presence_monitor": "running",
-            "auto_ping": "active"
+            "discord_bot": "running",
+            "badge_monitor": "active",
+            "presence_monitor": "active"
         }
     })
 
-@app.route('/test-notification')
-def test_notification():
-    """Endpoint de teste para enviar notificação de sistema"""
-    try:
-        test_message = ("🧪 **Teste de Sistema**\n\n"
-                       "Esta é uma notificação de teste para verificar "
-                       "se o sistema de alertas está funcionando corretamente!")
-        
-        send_system_notification('startup', test_message, 0x00BFFF)  # Azul
-        
-        return jsonify({
-            "status": "success", 
-            "message": "Notificação de teste enviada!",
-            "grupos_configurados": len(monitor_groups),
-            "timestamp": datetime.now().isoformat()
-        })
-    except Exception as e:
-        return jsonify({
-            "status": "error", 
-            "message": f"Erro ao enviar notificação: {e}",
-            "timestamp": datetime.now().isoformat()
-        }), 500
+@app.route('/health')
+def health():
+    """Endpoint de saúde simples para Railway"""
+    return jsonify({
+        "status": "healthy", 
+        "message": "Discord bot is running",
+        "timestamp": datetime.now().isoformat(),
+        "uptime": get_uptime_formatted()
+    })
 
 def get_uptime_formatted():
     """Formata o tempo de atividade de forma legível"""
@@ -120,108 +83,45 @@ def get_uptime_formatted():
     else:
         return f"{seconds:02d}s"
 
-def send_system_notification(event_type, message, color=0x00FF00):
-    """Envia notificação de sistema para todos os webhooks configurados"""
-    if not monitor_groups:
-        print("⚠️  Nenhum grupo configurado para notificações de sistema")
-        return
-    
-    for group in monitor_groups:
-        webhook_url = group.get('webhook_url')
-        group_name = group.get('name', 'Grupo Desconhecido')
-        
-        if not webhook_url:
-            continue
-            
-        try:
-            # Emoji baseado no tipo de evento
-            emoji_map = {
-                'startup': '🟢',
-                'shutdown': '🔴',
-                'crash': '💥',
-                'restart': '🔄'
-            }
-            emoji = emoji_map.get(event_type, '🔔')
-            
-            embed = {
-                "title": f"{emoji} Sistema de Monitoramento",
-                "description": message,
-                "color": color,
-                "timestamp": datetime.utcnow().isoformat(),
-                "fields": [
-                    {
-                        "name": "📅 Data/Hora",
-                        "value": datetime.now().strftime('%d/%m/%Y %H:%M:%S'),
-                        "inline": True
-                    },
-                    {
-                        "name": "🌐 URL",
-                        "value": replit_url if replit_url else "Detectando...",
-                        "inline": True
-                    }
-                ],
-                "footer": {
-                    "text": "Nouvelle Company Monitor - Keep Alive System"
-                }
-            }
-            
-            if event_type == 'startup':
-                embed["fields"].append({
-                    "name": "🚀 Serviços",
-                    "value": "🏆 Monitor Badges\n📶 Monitor Presença\n🌐 Keep-Alive\n🔄 Auto-Ping",
-                    "inline": False
-                })
-            
-            payload = {"embeds": [embed]}
-            
-            response = requests.post(webhook_url, json=payload, timeout=10)
-            if response.status_code == 204:
-                print(f"✅ Notificação de sistema enviada para {group_name}")
-            else:
-                print(f"❌ Erro ao enviar notificação para {group_name}: {response.status_code}")
-                
-        except Exception as e:
-            print(f"❌ Erro ao enviar notificação de sistema para {group_name}: {e}")
+def log_system_event(event_type, message):
+    """Log de eventos do sistema (substitui notificações webhook)"""
+    emoji_map = {
+        'startup': '🟢',
+        'shutdown': '🔴',
+        'crash': '💥',
+        'restart': '🔄'
+    }
+    emoji = emoji_map.get(event_type, '🔔')
+    timestamp = datetime.now().strftime('%d/%m/%Y %H:%M:%S')
+    print(f"{emoji} [{timestamp}] {event_type.upper()}: {message}")
 
-def detect_replit_url():
-    """Detecta automaticamente o URL público do Replit"""
-    global replit_url
+def detect_public_url():
+    """Detecta automaticamente o URL público (Railway ou outras plataformas)"""
+    global public_url
     
     try:
-        # Verificar variáveis de ambiente do Replit
+        # Railway detection (primary)
+        railway_domain = os.getenv('RAILWAY_PUBLIC_DOMAIN')
+        if railway_domain:
+            public_url = f"https://{railway_domain}"
+            print(f"🚀 Railway URL detectado: {public_url}")
+            return
+        
+        # Generic cloud platform detection (fallback)
         repl_slug = os.getenv('REPL_SLUG')
         repl_owner = os.getenv('REPL_OWNER')
-        replit_db_url = os.getenv('REPLIT_DB_URL')
+        if repl_slug and repl_owner:
+            public_url = f"https://{repl_slug}--{repl_owner}.replit.app"
+            print(f"🌐 Plataforma de nuvem detectada: {public_url}")
+            return
         
-        if replit_db_url:
-            # Extrair URL do REPLIT_DB_URL (formato: https://kv.replit.com/v0/...)
-            # Modificar para o formato do app: https://repl-name--username.replit.app
-            if repl_slug and repl_owner:
-                replit_url = f"https://{repl_slug}--{repl_owner}.replit.app"
-            else:
-                print("⚠️  Não foi possível detectar REPL_SLUG ou REPL_OWNER")
-        
-        # Fallback: tentar outras variáveis do Replit
-        if not replit_url:
-            replit_domains = os.getenv('REPLIT_DOMAINS')
-            if replit_domains:
-                domains_list = replit_domains.split(',')
-                if domains_list:
-                    replit_url = f"https://{domains_list[0].strip()}"
-        
-        # Se ainda não encontrou, tentar construir baseado no hostname
-        if not replit_url and repl_slug and repl_owner:
-            replit_url = f"https://{repl_slug}.{repl_owner}.repl.co"
-        
-        if replit_url:
-            print(f"🌐 URL público detectado: {replit_url}")
-            print(f"📋 Use este link para monitoramento externo: {replit_url}")
-        else:
-            print("⚠️  Não foi possível detectar automaticamente o URL público do Replit")
-            print("   O ping externo será desabilitado.")
+        print("⚠️  URL público não detectado - ping externo desabilitado")
+        print("   Isso é normal se executando localmente")
+        public_url = None
             
     except Exception as e:
-        print(f"❌ Erro ao detectar URL do Replit: {e}")
+        print(f"❌ Erro ao detectar URL público: {e}")
+        public_url = None
 
 def ping_local():
     """Realiza ping local (localhost)"""
@@ -240,13 +140,13 @@ def ping_local():
         return False
 
 def ping_external():
-    """Realiza ping externo (URL público do Replit)"""
-    if not replit_url:
+    """Realiza ping externo (URL público)"""
+    if not public_url:
         print("⚠️  URL público não detectado, pulando ping externo")
         return False
     
     try:
-        response = requests.get(replit_url, timeout=15)
+        response = requests.get(public_url, timeout=15)
         if response.status_code == 200:
             ping_stats['external']['success'] += 1
             ping_stats['external']['last_ping'] = datetime.now().isoformat()
@@ -271,7 +171,7 @@ def auto_ping_loop():
     # Primeiro ping para teste
     print("🔍 Realizando primeiro ping de teste...")
     ping_local()
-    if replit_url:
+    if public_url:
         ping_external()
     
     # Loop principal
@@ -292,7 +192,7 @@ def auto_ping_loop():
             local_success = ping_local()
             external_success = False
             
-            if replit_url:
+            if public_url:
                 external_success = ping_external()
             
             # Log resumido
@@ -367,15 +267,15 @@ def keep_alive():
     print("🌐 Iniciando Sistema Keep-Alive Avançado")
     print("🌐 ========================================")
     
-    # 0. Carregar configurações e configurar handlers
-    load_monitor_groups()
+    # 0. Configurar handlers
     setup_shutdown_handlers()
     
-    # 1. Detectar URL público do Replit
-    detect_replit_url()
+    # 1. Detectar URL público
+    detect_public_url()
     
     # 2. Iniciar servidor Flask em thread separada
-    print("🚀 Iniciando servidor Flask na porta 5000...")
+    port = int(os.getenv('PORT', '5000'))
+    print(f"🚀 Iniciando servidor Flask na porta {port}...")
     flask_thread = threading.Thread(target=run_flask, daemon=True, name="FlaskServer")
     flask_thread.start()
     
@@ -405,9 +305,10 @@ def keep_alive():
     print("🌐 ========================================")
     print("✅ Keep-Alive Sistema ATIVO!")
     print(f"🌐 Servidor local: http://127.0.0.1:5000")
-    if replit_url:
-        print(f"🌐 URL público: {replit_url}")
-        print(f"🔗 Status: {replit_url}/status")
+    if public_url:
+        print(f"🌐 URL público: {public_url}")
+        print(f"🔗 Status: {public_url}/status")
+        print(f"💚 Health: {public_url}/health")
     print("🔄 Auto-ping: Ativo (4.5-5.5 min)")
     print("📊 Logs: Pings e status serão mostrados automaticamente")
     print("📢 Notificações: Startup/Shutdown configuradas")

@@ -71,6 +71,15 @@ def load_guild_data():
     """Carrega dados de todos os servidores com sistema robusto"""
     global guild_data
     guild_data = safe_json_load(GUILD_DATA_FILE, {})
+    
+    # Aviso se arquivo não existir (dados perdidos)
+    if not os.path.exists(GUILD_DATA_FILE):
+        railway_env = os.getenv('RAILWAY_ENVIRONMENT_NAME')
+        if railway_env:
+            logger.warning("⚠️ guild_data.json não encontrado - dados perdidos no restart (Railway)")
+        else:
+            logger.info("📋 guild_data.json não encontrado - primeira execução")
+    
     logger.info(f"Dados dos servidores carregados: {len(guild_data)} servidor(es)")
 
 def save_guild_data():
@@ -106,7 +115,16 @@ def get_guild_config(guild_id: int):
 
 def load_known_badges():
     """Carrega as badges já conhecidas do arquivo"""
-    return safe_json_load(BADGES_FILE, {})
+    badges = safe_json_load(BADGES_FILE, {})
+    
+    # Aviso se arquivo não existir (dados perdidos)
+    if not os.path.exists(BADGES_FILE):
+        railway_env = os.getenv('RAILWAY_ENVIRONMENT_NAME')
+        if railway_env:
+            logger.warning("⚠️ known_badges.json não encontrado - histórico de badges perdido (Railway)")
+            logger.warning("   Podem ocorrer notificações duplicadas!")
+    
+    return badges
 
 def save_known_badges(badges):
     """Salva as badges conhecidas no arquivo"""
@@ -114,7 +132,16 @@ def save_known_badges(badges):
 
 def load_last_presence():
     """Carrega o último status de presença dos usuários"""
-    return safe_json_load(PRESENCE_FILE, {})
+    presence = safe_json_load(PRESENCE_FILE, {})
+    
+    # Aviso se arquivo não existir (dados perdidos)
+    if not os.path.exists(PRESENCE_FILE):
+        railway_env = os.getenv('RAILWAY_ENVIRONMENT_NAME')
+        if railway_env:
+            logger.warning("⚠️ last_presence.json não encontrado - status de presença perdido (Railway)")
+            logger.warning("   Primeiras mudanças de status podem não ser detectadas!")
+    
+    return presence
 
 def save_last_presence(presence_data):
     """Salva o último status de presença dos usuários"""
@@ -274,10 +301,11 @@ async def on_error(event: str, *args, **kwargs):
     })
     
     # Notificar erro crítico
-    await critical_notifier.notify_critical_error(error, {
-        "event": event,
-        "args": str(args)[:500]
-    })
+    if error:
+        await critical_notifier.notify_critical_error(error, {
+            "event": event,
+            "args": str(args)[:500]
+        })
     
     # Se for um erro de task, tentar reiniciar automaticamente via watchdog
     if "task" in event.lower():
@@ -289,6 +317,25 @@ async def on_ready():
     """Executado quando o bot está online"""
     print(f'{bot.user} está online!')
     print(f'IDs autorizados: {AUTHORIZED_DISCORD_IDS}')
+    
+    # ⚠️ AVISO CRÍTICO SOBRE PERSISTÊNCIA DE DADOS NO RAILWAY ⚠️
+    railway_env = os.getenv('RAILWAY_ENVIRONMENT_NAME')
+    if railway_env:
+        print("\n" + "="*60)
+        print("⚠️  AVISO CRÍTICO: DADOS TEMPORÁRIOS NO RAILWAY")
+        print("="*60)
+        print("🔄 Os dados do bot (usuários monitorados, badges, presença)")
+        print("   serão PERDIDOS a cada restart no Railway!")
+        print("\n📋 Arquivos afetados:")
+        print("   • guild_data.json (configurações por servidor)")
+        print("   • known_badges.json (badges já detectadas)")
+        print("   • last_presence.json (status de presença)")
+        print("\n🔧 SOLUÇÕES RECOMENDADAS:")
+        print("   1. Use Railway PostgreSQL add-on")
+        print("   2. Configure backup externo (Google Drive, S3)")
+        print("   3. Reconfigure usuários após cada restart")
+        print("\n💡 Para produção: implemente banco de dados!")
+        print("="*60 + "\n")
     
     # Configurar sistema de notificações críticas
     critical_notifier.set_bot(bot)
@@ -925,7 +972,7 @@ async def monitoring_badge_task():
                                 user_info, _, _ = await asyncio.to_thread(get_user_info_robust, int(roblox_id))
                                 avatar_url, _, _ = await asyncio.to_thread(get_user_avatar_robust, int(roblox_id))
                             except Exception as e:
-                                logger.warning(f"Erro ao obter info do usuário {roblox_id}", e)
+                                logger.warning(f"Erro ao obter info do usuário {roblox_id}", None, {"error": str(e)})
                                 user_info, avatar_url = None, None
                             
                             for badge_id in new_badge_ids:

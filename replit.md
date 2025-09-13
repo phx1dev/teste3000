@@ -1,8 +1,8 @@
-# Roblox Badge Monitor
+# Roblox Badge Monitor Discord Bot
 
 ## Overview
 
-This is a comprehensive Python-based monitoring application that tracks Roblox user badges and online presence, sending real-time notifications to Discord webhooks. The system features 24/7 operation with multi-group support, parallel monitoring of both badge achievements and online status changes, and includes a keep-alive mechanism for continuous operation on Replit's free tier.
+This is a comprehensive Python-based Discord bot that monitors Roblox user badges and online presence, sending real-time notifications directly to Discord channels. The system features 24/7 operation with multi-server support, slash commands for easy management, and robust error handling optimized for Railway deployment.
 
 ## User Preferences
 
@@ -151,16 +151,30 @@ GROUPS = {
 - Independent monitoring per group
 - Supports unlimited groups and users
 
-### Recent Changes (Sept 6, 2025)
+### ⚠️ Railway Deployment Notes (Sept 12, 2025)
 
-**Keep-Alive Integration:**
-- Added Flask web server for 24/7 operation
-- Integrated keep-alive system with main monitoring loop
-- Server starts automatically with monitoring systems
-- Public URL available for external monitoring services
+**CRITICAL: Data Persistence Limitation**
+- Railway has ephemeral storage - JSON files are lost on restart
+- Affected files: guild_data.json, known_badges.json, last_presence.json
+- Bot will lose all tracked users and badge history on each restart
+- **Solution required**: Use Railway PostgreSQL add-on or external storage
+
+**Railway Configuration:**
+- Flask server properly configured for Railway (uses PORT env var)
+- Removed Replit-specific code and dependencies
+- Added Railway environment detection and warnings
+- Compatible with both worker and web service deployment types
+
+**Recent Changes (Sept 12, 2025)**
+
+**Railway Compatibility:**
+- Cleaned up obsolete webhook code from keep_alive.py
+- Fixed Flask configuration to use Railway PORT environment variable  
+- Added data persistence warnings throughout the system
+- Removed Replit-specific URL detection and ping systems
 
 **Enhanced Monitoring:**
 - Parallel badge and presence monitoring using threading
 - Real-time online status detection (Offline → Online/In Game/Studio)
 - Dual notification system for badges and presence changes
-- Persistent state management for both badges and presence
+- Robust error handling and recovery systems
