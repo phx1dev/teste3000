@@ -41,8 +41,8 @@ def log_platform_info():
     if IS_RENDER:
         logging.info("🎨 Rodando no Render.com (produção)")
         logging.info(f"📊 Service: {RENDER_SERVICE_NAME}")
-        logging.warning("⚠️  AVISO: Free tier - serviço dorme após 15min de inatividade")
-        logging.info("💡 Para 24/7: Upgrade para Starter plan ($7/mês)")
+        logging.info("💡 Background Worker: Não dorme como Web Services")
+        logging.info("💡 Para mais recursos: Upgrade para Starter plan ($7/mês)")
         if RENDER_EXTERNAL_URL:
             logging.info(f"🌐 URL público: {RENDER_EXTERNAL_URL}")
     elif IS_RAILWAY:

@@ -2,7 +2,6 @@ services:
   - type: worker
     name: roblox-discord-bot
     env: python
-    repo: https://github.com/USERNAME/roblox-discord-bot.git # Substitua pelo seu repo
     buildCommand: pip install -r requirements.txt
     startCommand: python bot_main.py
     plan: free

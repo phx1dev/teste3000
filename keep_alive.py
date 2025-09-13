@@ -14,6 +14,8 @@ app = Flask(__name__)
 # Variáveis globais para controle
 start_time = time.time()
 railway_url = os.getenv('RAILWAY_PUBLIC_DOMAIN')
+render_url = os.getenv('RENDER_EXTERNAL_URL')
+is_render = bool(os.getenv('RENDER'))
 ping_stats = {
     'local': {'success': 0, 'failure': 0, 'last_ping': None},
     'external': {'success': 0, 'failure': 0, 'last_ping': None}
@@ -46,6 +48,8 @@ def status():
         "start_time": datetime.fromtimestamp(start_time).isoformat(),
         "current_time": datetime.now().isoformat(),
         "railway_url": railway_url,
+        "render_url": render_url,
+        "platform": "render" if is_render else "railway" if railway_url else "local",
         "ping_stats": ping_stats,
         "services": {
             "flask_server": "online",
@@ -96,11 +100,18 @@ def log_system_event(event_type, message):
     print(f"{emoji} [{timestamp}] {event_type.upper()}: {message}")
 
 def detect_public_url():
-    """Detecta automaticamente o URL público (Railway ou outras plataformas)"""
+    """Detecta automaticamente o URL público (Render/Railway ou outras plataformas)"""
     global public_url
     
     try:
-        # Railway detection (primary)
+        # Render detection (primary for new deployments)
+        render_external_url = os.getenv('RENDER_EXTERNAL_URL')
+        if render_external_url:
+            public_url = render_external_url
+            print(f"🎨 Render URL detectado: {public_url}")
+            return
+        
+        # Railway detection (secondary)
         railway_domain = os.getenv('RAILWAY_PUBLIC_DOMAIN')
         if railway_domain:
             public_url = f"https://{railway_domain}"
@@ -115,8 +126,11 @@ def detect_public_url():
             print(f"🌐 Plataforma de nuvem detectada: {public_url}")
             return
         
-        print("⚠️  URL público não detectado - ping externo desabilitado")
-        print("   Isso é normal se executando localmente")
+        print("⚠️  URL público não detectado")
+        if is_render:
+            print("   Para Render Background Worker, isso é normal")
+        else:
+            print("   Isso é normal se executando localmente")
         public_url = None
             
     except Exception as e:
@@ -222,19 +236,22 @@ def exit_handler():
     time.sleep(1)  # Tempo para log
 
 def setup_shutdown_handlers():
-    """Configura os handlers de shutdown"""
+    """Configura os handlers de shutdown (apenas na main thread)"""
     # Registrar handler para saída normal
     atexit.register(exit_handler)
     
-    # Registrar handlers para sinais do sistema
-    try:
-        signal.signal(signal.SIGTERM, shutdown_handler)
-        signal.signal(signal.SIGINT, shutdown_handler)
-        if hasattr(signal, 'SIGHUP'):
-            signal.signal(signal.SIGHUP, shutdown_handler)
-        print("✅ Handlers de shutdown configurados")
-    except Exception as e:
-        print(f"⚠️  Erro ao configurar handlers de shutdown: {e}")
+    # Registrar handlers para sinais do sistema (apenas se na main thread)
+    if threading.current_thread() is threading.main_thread():
+        try:
+            signal.signal(signal.SIGTERM, shutdown_handler)
+            signal.signal(signal.SIGINT, shutdown_handler)
+            if hasattr(signal, 'SIGHUP'):
+                signal.signal(signal.SIGHUP, shutdown_handler)
+            print("✅ Handlers de shutdown configurados")
+        except Exception as e:
+            print(f"⚠️  Erro ao configurar handlers de shutdown: {e}")
+    else:
+        print("⚠️  Signal handlers ignorados (executando em thread separada)")
 
 def run_flask():
     """Executa o servidor Flask em thread separada"""

@@ -9,13 +9,17 @@ import sys
 import threading
 import time
 from discord_bot import run_bot
-from keep_alive import keep_alive
+from keep_alive import keep_alive, setup_shutdown_handlers
 
 def main():
     """Função principal para executar o bot"""
     
     print("🤖 Iniciando Bot Discord - Monitor Roblox")
+    print("🌐 Plataforma: Render.com Compatible")
     print("=" * 50)
+    
+    # 0. Configurar handlers de shutdown na main thread
+    setup_shutdown_handlers()
     
     # 1. Iniciar keep-alive em thread separada primeiro
     print("🌐 Iniciando servidor Flask (keep-alive)...")
@@ -30,8 +34,8 @@ def main():
     bot_token = os.getenv('BOT_TOKEN') or os.getenv('DISCORD_BOT_TOKEN')
     if not bot_token:
         print("❌ ERRO: Token do bot não configurado!")
-        print("📝 Configure a variável de ambiente BOT_TOKEN (Railway) ou DISCORD_BOT_TOKEN")
-        print("💡 Exemplo: BOT_TOKEN='seu_token_aqui' (Railway)")
+        print("📝 Configure a variável de ambiente BOT_TOKEN (Render/Railway) ou DISCORD_BOT_TOKEN")
+        print("💡 Exemplo: BOT_TOKEN='seu_token_aqui' (Render)")
         print("🔗 Obtenha seu token em: https://discord.com/developers/applications")
         # Não retornar False - deixar o servidor Flask rodando para health checks
         print("⚠️  Mantendo servidor Flask ativo para health checks...")
