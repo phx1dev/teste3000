@@ -54,9 +54,7 @@ class SystemError(Exception):
     pass
 
 # ====== CONFIGURAÇÕES DOS ARQUIVOS ======
-GUILD_DATA_FILE = "guild_data.json"  # Dados por servidor Discord
-BADGES_FILE = "known_badges.json"
-PRESENCE_FILE = "last_presence.json"
+from config import GUILD_DATA_FILE, BADGES_FILE, PRESENCE_FILE
 
 # ====== VARIÁVEIS GLOBAIS ======
 bot = commands.Bot(command_prefix='!', intents=discord.Intents.all())
@@ -396,7 +394,7 @@ async def on_ready():
         try:
             for command in bot.tree.get_commands():
                 # Verificar se o comando tem callback (evita erro com Groups)
-                if hasattr(command, 'callback') and command.callback:
+                if hasattr(command, 'callback') and callable(getattr(command, 'callback', None)):
                     callback = command.callback
                     if not (hasattr(callback, '__wrapped__') or getattr(callback, '_secure_guard', False)):
                         unprotected_commands.append(command.name)

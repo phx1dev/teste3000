@@ -15,6 +15,16 @@ BOT_OWNER_ID = int(os.getenv("BOT_OWNER_ID", "0")) if os.getenv("BOT_OWNER_ID") 
 # Railway-specific configuration
 PORT = int(os.getenv("PORT", "5000"))
 RAILWAY_ENVIRONMENT = os.getenv("RAILWAY_ENVIRONMENT_NAME", "development")
+
+# Data persistence configuration for Railway
+DATA_DIR = os.getenv("DATA_DIR", ".")  # Railway Volume path or current directory
+BADGES_FILE = os.path.join(DATA_DIR, "known_badges.json")
+PRESENCE_FILE = os.path.join(DATA_DIR, "last_presence.json")
+GUILD_DATA_FILE = os.path.join(DATA_DIR, "guild_data.json")
+
+# Ensure data directory exists
+if not os.path.exists(DATA_DIR):
+    os.makedirs(DATA_DIR, exist_ok=True)
 RAILWAY_PUBLIC_DOMAIN = os.getenv("RAILWAY_PUBLIC_DOMAIN")
 
 # IDs do Discord autorizados a usar os comandos do bot (via env vars para Railway)
@@ -47,13 +57,14 @@ BACKUP_CONFIG = {
     "enable_auto_backup": True,      # Habilitar backup automático
     "backup_interval_hours": 6,      # Intervalo de backup em horas
     "max_backup_files": 10,          # Máximo de arquivos de backup
-    "backup_on_critical_error": True # Backup em caso de erro crítico
+    "backup_on_critical_error": True, # Backup em caso de erro crítico
+    "backup_dir": os.path.join(DATA_DIR, "backups")  # Diretório de backup no DATA_DIR
 }
 
 # Configurações de Logging
 LOGGING_CONFIG = {
     "log_level": "INFO",             # DEBUG, INFO, WARNING, ERROR, CRITICAL
-    "log_file": "bot.log",           # Arquivo de log
+    "log_file": os.path.join(DATA_DIR, "bot.log"),  # Arquivo de log no DATA_DIR
     "max_log_size": 10 * 1024 * 1024, # 10MB máximo por arquivo
     "backup_count": 5,               # Número de arquivos de log rotativos
     "log_api_calls": True,           # Log das chamadas da API

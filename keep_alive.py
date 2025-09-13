@@ -126,7 +126,8 @@ def detect_public_url():
 def ping_local():
     """Realiza ping local (localhost)"""
     try:
-        response = requests.get("http://127.0.0.1:5000/", timeout=10)
+        port = os.getenv('PORT', '5000')
+        response = requests.get(f"http://127.0.0.1:{port}/", timeout=10)
         if response.status_code == 200:
             ping_stats['local']['success'] += 1
             ping_stats['local']['last_ping'] = datetime.now().isoformat()
@@ -211,22 +212,14 @@ def auto_ping_loop():
 def shutdown_handler(signum=None, frame=None):
     """Handler chamado quando o sistema vai ser desligado"""
     print("\n🔴 Sistema sendo desligado...")
-    send_system_notification(
-        'shutdown', 
-        '🔴 **Sistema Offline**\n\nO bot de monitoramento foi desligado.',
-        0xFF0000  # Vermelho
-    )
-    time.sleep(2)  # Aguardar envio da notificação
+    log_system_event('shutdown', 'Bot de monitoramento foi desligado')
+    time.sleep(1)  # Tempo para log
 
 def exit_handler():
     """Handler chamado na saída do programa"""
     print("🔴 Finalizando sistema...")
-    send_system_notification(
-        'shutdown', 
-        '🔴 **Sistema Offline**\n\nO bot de monitoramento foi finalizado.',
-        0xFF0000  # Vermelho
-    )
-    time.sleep(2)  # Aguardar envio da notificação
+    log_system_event('shutdown', 'Bot de monitoramento foi finalizado')
+    time.sleep(1)  # Tempo para log
 
 def setup_shutdown_handlers():
     """Configura os handlers de shutdown"""
@@ -248,9 +241,10 @@ def run_flask():
     try:
         print("🚀 Iniciando servidor Flask...")
         # Usar configurações seguras para produção
+        port = int(os.getenv('PORT', '5000'))
         app.run(
             host='0.0.0.0', 
-            port=5000, 
+            port=port, 
             debug=False, 
             use_reloader=False,
             threaded=True
@@ -299,12 +293,13 @@ def keep_alive():
                       "🌐 Servidor Keep-Alive\n"
                       "🔄 Auto-Ping Sistema")
     
-    send_system_notification('startup', startup_message, 0x00FF00)  # Verde
+    log_system_event('startup', 'Bot de monitoramento iniciado com sucesso')
     
     # 5. Exibir informações finais
     print("🌐 ========================================")
     print("✅ Keep-Alive Sistema ATIVO!")
-    print(f"🌐 Servidor local: http://127.0.0.1:5000")
+    port = os.getenv('PORT', '5000')
+    print(f"🌐 Servidor local: http://127.0.0.1:{port}")
     if public_url:
         print(f"🌐 URL público: {public_url}")
         print(f"🔗 Status: {public_url}/status")
